@@ -1,0 +1,213 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Users ───────────────────────────────────────────────
+
+model User {
+  id             String    @id @default(cuid())
+  email          String?   @unique
+  emailVerified  DateTime?
+  phone          String?   @unique
+  phoneVerified  DateTime?
+  passwordHash   String?
+  name           String?
+  avatarUrl      String?
+  plan           Plan      @default(FREE)
+  credits        Int       @default(25)
+  role           Role      @default(USER)
+  banned         Boolean   @default(false)
+  bannedReason   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  accounts    Account[]
+  sessions    Session[]
+  generations Generation[]
+  collections Collection[]
+  auditLogs   AuditLog[]
+
+  @@index([email])
+  @@index([phone])
+}
+
+enum Plan {
+  FREE
+  BASIC
+  PRO
+  ENTERPRISE
+}
+
+enum Role {
+  USER
+  MODERATOR
+  ADMIN
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── Workflows ───────────────────────────────────────────
+
+model Workflow {
+  id            String           @id @default(cuid())
+  name          String
+  slug          String           @unique
+  description   String
+  category      WorkflowCategory
+  coverImageUrl String
+  previewUrls   String[]
+  tags          String[]
+  creditCost    Int              @default(1)
+  isActive      Boolean          @default(true)
+  isFeatured    Boolean          @default(false)
+  modelConfig   Json
+  promptTemplate Json
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  generations Generation[]
+
+  @@index([category])
+  @@index([isActive])
+}
+
+enum WorkflowCategory {
+  PORTRAIT
+  LANDSCAPE
+  ABSTRACT
+  CINEMATIC
+  ANIME
+  ARCHITECTURE
+  PRODUCT
+  FASHION
+  VIDEO_CINEMATIC
+  VIDEO_ANIME
+  VIDEO_COMMERCIAL
+  VIDEO_SHORT_FILM
+}
+
+// ─── Generations ─────────────────────────────────────────
+
+model Generation {
+  id             String           @id @default(cuid())
+  userId         String
+  workflowId     String
+  userPrompt     String           @db.Text
+  resolvedPrompt String?          @db.Text
+  status         GenerationStatus @default(PENDING)
+  mediaType      MediaType
+  outputUrls     String[]
+  thumbnailUrl   String?
+  blurhash       String?
+  metadata       Json?
+  errorMessage   String?
+  jobId          String?
+  creditsCost    Int
+  createdAt      DateTime         @default(now())
+  completedAt    DateTime?
+  expiresAt      DateTime?
+
+  user     User     @relation(fields: [userId], references: [id])
+  workflow Workflow @relation(fields: [workflowId], references: [id])
+
+  collections CollectionItem[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status])
+  @@index([jobId])
+}
+
+enum GenerationStatus {
+  PENDING
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+// ─── Collections ─────────────────────────────────────────
+
+model Collection {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  isPublic  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user  User             @relation(fields: [userId], references: [id])
+  items CollectionItem[]
+}
+
+model CollectionItem {
+  id           String   @id @default(cuid())
+  collectionId String
+  generationId String
+  addedAt      DateTime @default(now())
+
+  collection Collection @relation(fields: [collectionId], references: [id])
+  generation Generation @relation(fields: [generationId], references: [id])
+
+  @@unique([collectionId, generationId])
+}
+
+// ─── Audit Log ───────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  metadata  Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
