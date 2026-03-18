@@ -20,11 +20,9 @@ interface WorkflowGridProps {
 
 export function WorkflowGrid({ workflows }: WorkflowGridProps) {
   return (
-    <div className="masonry-grid">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
       {workflows.map((workflow) => (
-        <div key={workflow.id} className="masonry-item">
-          <WorkflowCard {...workflow} />
-        </div>
+        <WorkflowCard key={workflow.id} {...workflow} />
       ))}
     </div>
   );

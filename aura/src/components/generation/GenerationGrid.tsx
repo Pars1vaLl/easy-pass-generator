@@ -8,7 +8,11 @@ interface Generation {
   outputUrls: string[];
   thumbnailUrl?: string | null;
   blurhash?: string | null;
-  workflow: { name: string };
+  isFavorite?: boolean;
+  shareToken?: string | null;
+  mediaType?: string;
+  workflow: { name: string; slug?: string };
+  userPrompt?: string;
   createdAt: Date;
 }
 
@@ -18,11 +22,9 @@ interface GenerationGridProps {
 
 export function GenerationGrid({ generations }: GenerationGridProps) {
   return (
-    <div className="masonry-grid">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
       {generations.map((g) => (
-        <div key={g.id} className="masonry-item">
-          <GenerationCard generation={g} />
-        </div>
+        <GenerationCard key={g.id} generation={g} />
       ))}
     </div>
   );

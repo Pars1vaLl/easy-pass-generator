@@ -74,6 +74,7 @@ const config: Config = {
         "slide-up": "slide-up 0.3s ease-out",
         "pulse-glow": "pulse-glow 2s ease-in-out infinite",
         "spin-slow": "spin 3s linear infinite",
+        shimmer: "shimmer 1.5s ease-in-out infinite",
       },
       keyframes: {
         "fade-in": {
@@ -87,6 +88,10 @@ const config: Config = {
         "pulse-glow": {
           "0%, 100%": { boxShadow: "0 0 20px rgba(124, 90, 245, 0.3)" },
           "50%": { boxShadow: "0 0 40px rgba(124, 90, 245, 0.6)" },
+        },
+        shimmer: {
+          "0%": { backgroundPosition: "200% 0" },
+          "100%": { backgroundPosition: "-200% 0" },
         },
       },
     },

@@ -1,18 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc/client";
+import { useToast } from "@/components/ui/toast";
 import { compilePromptPreview, extractTemplateVariables } from "@/lib/compilePrompt";
-import { Sparkles, Gem, ArrowLeft, History, ChevronDown, Eye, EyeOff } from "lucide-react";
+import { Sparkles, Gem, ArrowLeft, History, ChevronDown, Eye, EyeOff, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import type { UserInputField } from "@/../../workers/types";
@@ -39,8 +40,10 @@ export function WorkflowCreator({
   promptTemplatePreview,
 }: WorkflowCreatorProps) {
   const router = useRouter();
+  const toast = useToast();
   const [showHistory, setShowHistory] = useState(false);
   const [showPreview, setShowPreview] = useState(!!promptTemplatePreview);
+  const [submitted, setSubmitted] = useState(false);
 
   const { data: promptHistory } = trpc.promptHistory.list.useQuery(
     { workflowId, limit: 10 },
@@ -48,7 +51,12 @@ export function WorkflowCreator({
   );
 
   const createMutation = trpc.generations.create.useMutation({
-    onSuccess: () => router.push("/gallery"),
+    onSuccess: () => {
+      setSubmitted(true);
+      toast.success("Generation started! Redirecting to gallery…");
+      setTimeout(() => router.push("/gallery"), 1200);
+    },
+    onError: (err) => toast.error(err.message),
   });
 
   const schema = z.object({
@@ -307,28 +315,46 @@ export function WorkflowCreator({
           </motion.div>
         )}
 
-        {/* Error */}
-        {createMutation.error && (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-            {createMutation.error.message}
-          </div>
-        )}
+        {/* Post-submit success state */}
+        <AnimatePresence>
+          {submitted && (
+            <motion.div
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="rounded-2xl border border-[#10b981]/30 bg-[#10b981]/10 px-4 py-3.5 flex items-center gap-3"
+            >
+              <CheckCircle2 className="h-5 w-5 text-[#10b981] flex-shrink-0" />
+              <p className="text-sm text-[#34d399]">
+                Generation queued! Redirecting to gallery…
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Submit */}
-        <motion.div whileTap={{ scale: 0.98 }}>
-          <Button
-            type="submit"
-            size="xl"
-            variant="gradient"
-            className="w-full"
-            disabled={createMutation.isPending}
-          >
-            <Sparkles className="h-5 w-5 mr-2" />
-            {createMutation.isPending
-              ? "Creating..."
-              : `✨ Create (costs ${creditCost} credit${creditCost !== 1 ? "s" : ""})`}
-          </Button>
-        </motion.div>
+        {!submitted && (
+          <motion.div whileTap={{ scale: 0.98 }}>
+            <Button
+              type="submit"
+              size="xl"
+              variant="gradient"
+              className="w-full h-12 text-base font-bold"
+              disabled={createMutation.isPending}
+            >
+              {createMutation.isPending ? (
+                <>
+                  <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
+                  Creating…
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-5 w-5 mr-2" />
+                  Generate — {creditCost} credit{creditCost !== 1 ? "s" : ""}
+                </>
+              )}
+            </Button>
+          </motion.div>
+        )}
       </form>
     </div>
   );

@@ -7,35 +7,124 @@ import { signUrl } from "@/lib/storage";
 import { auditLog } from "@/lib/audit";
 import { Plan, GenerationStatus, MediaType } from "@prisma/client";
 import { randomBytes } from "crypto";
+import { decryptWorkflowConfig } from "@/lib/crypto";
+import type { WorkflowConfig } from "@/../../workers/types";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Validate user-submitted params against the workflow's userInputSchema.
+ * Returns cleaned params with defaults applied.
+ * Throws TRPCError if a required field is missing or has an invalid type.
+ */
+function validateParams(
+  params: Record<string, unknown>,
+  schema: WorkflowConfig["userInputSchema"]
+): Record<string, unknown> {
+  const cleaned: Record<string, unknown> = {};
+
+  for (const field of schema) {
+    const raw = params[field.name];
+
+    if (raw === undefined || raw === null || raw === "") {
+      if (field.required) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Field "${field.label}" is required`,
+        });
+      }
+      if (field.default !== undefined) {
+        cleaned[field.name] = field.default;
+      }
+      continue;
+    }
+
+    // Type-check & coerce
+    switch (field.type) {
+      case "slider": {
+        const num = Number(raw);
+        if (isNaN(num)) throw new TRPCError({ code: "BAD_REQUEST", message: `Field "${field.label}" must be a number` });
+        const min = field.min ?? -Infinity;
+        const max = field.max ?? Infinity;
+        if (num < min || num > max) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Field "${field.label}" must be between ${min} and ${max}` });
+        }
+        cleaned[field.name] = num;
+        break;
+      }
+      case "toggle":
+        cleaned[field.name] = Boolean(raw);
+        break;
+      case "select": {
+        const allowed = field.options?.map((o) => o.value) ?? [];
+        if (allowed.length > 0 && !allowed.includes(String(raw))) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Invalid value for "${field.label}"` });
+        }
+        cleaned[field.name] = String(raw);
+        break;
+      }
+      case "text":
+      case "textarea": {
+        const str = String(raw);
+        if (field.maxLength && str.length > field.maxLength) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `"${field.label}" exceeds max length of ${field.maxLength}` });
+        }
+        cleaned[field.name] = str;
+        break;
+      }
+      default:
+        cleaned[field.name] = String(raw);
+    }
+  }
+
+  return cleaned;
+}
+
+/** Sign output URLs with a 1-hour TTL (fire and forget errors). */
+async function signOutputUrls(urls: string[]): Promise<string[]> {
+  return Promise.all(urls.map((u) => signUrl(u, 3600).catch(() => u)));
+}
+
+// ─── Router ───────────────────────────────────────────────────────────────────
 
 export const generationsRouter = router({
   create: protectedProcedure
     .input(
       z.object({
         workflowId: z.string().cuid(),
-        userPrompt: z.string().min(1).max(500),
+        userPrompt: z.string().min(1, "Prompt is required").max(500).trim(),
         params: z.record(z.string(), z.unknown()).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const user = ctx.user;
+
       const workflow = await ctx.db.workflow.findUnique({
         where: { id: input.workflowId, isActive: true },
+        select: { id: true, creditCost: true, category: true, modelConfig: true },
       });
 
-      if (!workflow) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Workflow not found" });
-      }
+      if (!workflow) throw new TRPCError({ code: "NOT_FOUND", message: "Workflow not found" });
 
       if (user.credits < workflow.creditCost) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Insufficient credits",
-        });
+        throw new TRPCError({ code: "FORBIDDEN", message: "Insufficient credits" });
       }
 
       await checkGenerationRateLimit(user.id, user.plan as Plan);
       await moderatePrompt(input.userPrompt);
+
+      // Validate params against userInputSchema
+      let cleanedParams: Record<string, unknown> = {};
+      try {
+        const config = decryptWorkflowConfig<WorkflowConfig>(workflow.modelConfig as string);
+        if (config.userInputSchema?.length) {
+          cleanedParams = validateParams(input.params ?? {}, config.userInputSchema);
+        }
+      } catch (err) {
+        // If decrypt fails (plain JSON workflow), skip param validation
+        if (err instanceof TRPCError) throw err;
+        cleanedParams = input.params ?? {};
+      }
 
       const mediaType = workflow.category.startsWith("VIDEO_") ? "VIDEO" : "IMAGE";
 
@@ -49,50 +138,43 @@ export const generationsRouter = router({
             userId: user.id,
             workflowId: input.workflowId,
             userPrompt: input.userPrompt,
-            params: input.params ?? {},
+            params: cleanedParams,
             status: "PENDING",
             mediaType,
             creditsCost: workflow.creditCost,
           },
+          select: { id: true },
         }),
       ]);
 
-      // Save prompt to history (keep last 50 per user)
-      ctx.db.promptHistory.create({
-        data: {
-          userId: user.id,
-          prompt: input.userPrompt,
-          workflowId: input.workflowId,
-        },
-      }).then(async () => {
-        // Prune old entries, keep last 50
-        const old = await ctx.db.promptHistory.findMany({
-          where: { userId: user.id },
-          orderBy: { createdAt: "desc" },
-          skip: 50,
-          select: { id: true },
-        });
-        if (old.length > 0) {
-          await ctx.db.promptHistory.deleteMany({
-            where: { id: { in: old.map((r) => r.id) } },
-          });
-        }
-      }).catch(() => null);
+      // Async: save prompt to history + prune old entries
+      void ctx.db.promptHistory
+        .create({ data: { userId: user.id, prompt: input.userPrompt, workflowId: input.workflowId } })
+        .then(() =>
+          ctx.db.promptHistory
+            .findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, skip: 50, select: { id: true } })
+            .then((old) =>
+              old.length > 0
+                ? ctx.db.promptHistory.deleteMany({ where: { id: { in: old.map((r) => r.id) } } })
+                : null
+            )
+        )
+        .catch(() => null);
 
+      // Enqueue job
       try {
         const { generationQueue } = await import("@/lib/queue");
-        const job = await generationQueue.add("generate", {
-          generationId: generation.id,
-        });
+        const job = await generationQueue.add("generate", { generationId: generation.id });
         await ctx.db.generation.update({
           where: { id: generation.id },
           data: { status: "QUEUED", jobId: job.id },
         });
       } catch (err) {
         console.error("Queue error:", err);
+        // Generation stays PENDING; worker can be re-triggered later
       }
 
-      await auditLog(user.id, "generation.created", {
+      void auditLog(user.id, "generation.created", {
         workflowId: input.workflowId,
         generationId: generation.id,
       });
@@ -112,41 +194,43 @@ export const generationsRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const where = {
-        userId: ctx.user.id,
-        ...(input.status && { status: input.status }),
-        ...(input.mediaType && { mediaType: input.mediaType }),
-        ...(input.workflowId && { workflowId: input.workflowId }),
-        ...(input.favoritesOnly && { isFavorite: true }),
-      };
-
       const generations = await ctx.db.generation.findMany({
-        where,
+        where: {
+          userId: ctx.user.id,
+          ...(input.status && { status: input.status }),
+          ...(input.mediaType && { mediaType: input.mediaType }),
+          ...(input.workflowId && { workflowId: input.workflowId }),
+          ...(input.favoritesOnly && { isFavorite: true }),
+        },
         orderBy: { createdAt: "desc" },
         take: input.limit + 1,
         cursor: input.cursor ? { id: input.cursor } : undefined,
-        include: {
-          workflow: {
-            select: { name: true, category: true, slug: true },
-          },
+        select: {
+          id: true,
+          status: true,
+          outputUrls: true,
+          thumbnailUrl: true,
+          blurhash: true,
+          isFavorite: true,
+          shareToken: true,
+          mediaType: true,
+          userPrompt: true,
+          createdAt: true,
+          workflow: { select: { name: true, slug: true, category: true } },
         },
       });
 
       const withSignedUrls = await Promise.all(
         generations.map(async (g) => ({
           ...g,
-          outputUrls: await Promise.all(
-            g.outputUrls.map((url) => signUrl(url, 3600).catch(() => url))
-          ),
+          outputUrls: await signOutputUrls(g.outputUrls),
         }))
       );
 
       return {
         generations: withSignedUrls.slice(0, input.limit),
         nextCursor:
-          withSignedUrls.length > input.limit
-            ? withSignedUrls[input.limit].id
-            : undefined,
+          withSignedUrls.length > input.limit ? withSignedUrls[input.limit].id : undefined,
       };
     }),
 
@@ -156,21 +240,16 @@ export const generationsRouter = router({
       const generation = await ctx.db.generation.findFirst({
         where: { id: input.id, userId: ctx.user.id },
         include: {
-          workflow: {
-            select: { name: true, category: true, slug: true },
-          },
+          workflow: { select: { name: true, category: true, slug: true } },
         },
       });
 
-      if (!generation) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
+      if (!generation) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const signedUrls = await Promise.all(
-        generation.outputUrls.map((url) => signUrl(url, 3600).catch(() => url))
-      );
-
-      return { ...generation, outputUrls: signedUrls };
+      return {
+        ...generation,
+        outputUrls: await signOutputUrls(generation.outputUrls),
+      };
     }),
 
   toggleFavorite: protectedProcedure
@@ -181,9 +260,7 @@ export const generationsRouter = router({
         select: { isFavorite: true },
       });
 
-      if (!generation) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
+      if (!generation) throw new TRPCError({ code: "NOT_FOUND" });
 
       const updated = await ctx.db.generation.update({
         where: { id: input.id },
@@ -202,21 +279,12 @@ export const generationsRouter = router({
         select: { shareToken: true },
       });
 
-      if (!generation) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
+      if (!generation) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // Return existing token or create new one
-      if (generation.shareToken) {
-        return { shareToken: generation.shareToken };
-      }
+      if (generation.shareToken) return { shareToken: generation.shareToken };
 
-      const shareToken = randomBytes(16).toString("hex");
-      await ctx.db.generation.update({
-        where: { id: input.id },
-        data: { shareToken },
-      });
-
+      const shareToken = randomBytes(20).toString("hex"); // 40-char hex = 160 bits
+      await ctx.db.generation.update({ where: { id: input.id }, data: { shareToken } });
       return { shareToken };
     }),
 
@@ -231,32 +299,27 @@ export const generationsRouter = router({
     }),
 
   getShared: publicProcedure
-    .input(z.object({ token: z.string() }))
+    .input(z.object({ token: z.string().min(1).max(80) }))
     .query(async ({ ctx, input }) => {
       const generation = await ctx.db.generation.findFirst({
         where: { shareToken: input.token, status: "COMPLETED" },
-        include: {
+        select: {
+          id: true,
+          outputUrls: true,
+          thumbnailUrl: true,
+          mediaType: true,
+          userPrompt: true,  // user's own input is fine to show
+          createdAt: true,
           workflow: { select: { name: true, category: true } },
           user: { select: { name: true, avatarUrl: true } },
         },
       });
 
-      if (!generation) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
-
-      const signedUrls = await Promise.all(
-        generation.outputUrls.map((url) => signUrl(url, 3600).catch(() => url))
-      );
+      if (!generation) throw new TRPCError({ code: "NOT_FOUND" });
 
       return {
         ...generation,
-        outputUrls: signedUrls,
-        // Never expose sensitive fields
-        userId: undefined,
-        shareToken: undefined,
-        jobId: undefined,
-        errorMessage: undefined,
+        outputUrls: await signOutputUrls(generation.outputUrls),
       };
     }),
 
@@ -264,24 +327,14 @@ export const generationsRouter = router({
     .input(z.object({ id: z.string().cuid() }))
     .mutation(async ({ ctx, input }) => {
       const generation = await ctx.db.generation.findFirst({
-        where: {
-          id: input.id,
-          userId: ctx.user.id,
-          status: { in: ["PENDING", "QUEUED"] },
-        },
+        where: { id: input.id, userId: ctx.user.id, status: { in: ["PENDING", "QUEUED"] } },
         select: { id: true, creditsCost: true },
       });
 
-      if (!generation) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
+      if (!generation) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // Cancel and refund credits atomically
       await ctx.db.$transaction([
-        ctx.db.generation.update({
-          where: { id: input.id },
-          data: { status: "CANCELLED" },
-        }),
+        ctx.db.generation.update({ where: { id: input.id }, data: { status: "CANCELLED" } }),
         ctx.db.user.update({
           where: { id: ctx.user.id },
           data: { credits: { increment: generation.creditsCost } },
@@ -292,17 +345,30 @@ export const generationsRouter = router({
     }),
 
   stats: protectedProcedure.query(async ({ ctx }) => {
-    const [total, completed, failed, favorites] = await Promise.all([
-      ctx.db.generation.count({ where: { userId: ctx.user.id } }),
-      ctx.db.generation.count({ where: { userId: ctx.user.id, status: "COMPLETED" } }),
-      ctx.db.generation.count({ where: { userId: ctx.user.id, status: "FAILED" } }),
+    // Single grouped query instead of 4 separate COUNTs
+    const [grouped, favorites] = await Promise.all([
+      ctx.db.generation.groupBy({
+        by: ["status"],
+        where: { userId: ctx.user.id },
+        _count: { id: true },
+      }),
       ctx.db.generation.count({ where: { userId: ctx.user.id, isFavorite: true } }),
     ]);
 
-    return { total, completed, failed, favorites, successRate: total > 0 ? Math.round((completed / total) * 100) : 0 };
+    const counts = Object.fromEntries(grouped.map((g) => [g.status, g._count.id]));
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const completed = counts.COMPLETED ?? 0;
+
+    return {
+      total,
+      completed,
+      failed: counts.FAILED ?? 0,
+      favorites,
+      successRate: total > 0 ? Math.round((completed / total) * 100) : 0,
+    };
   }),
 
-  // Admin: view all generations
+  // Admin
   adminList: adminProcedure
     .input(
       z.object({
