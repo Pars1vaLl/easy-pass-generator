@@ -3,8 +3,9 @@
 import { useState } from "react";
 import Image from "next/image";
 import { motion } from "framer-motion";
-import { Heart, Download, MoreHorizontal, Loader2 } from "lucide-react";
+import { Heart, Download, Link2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { trpc } from "@/lib/trpc/client";
 
 interface Generation {
   id: string;
@@ -12,6 +13,9 @@ interface Generation {
   outputUrls: string[];
   thumbnailUrl?: string | null;
   blurhash?: string | null;
+  isFavorite?: boolean;
+  shareToken?: string | null;
+  mediaType?: string;
   workflow: { name: string };
   createdAt: Date;
 }
@@ -31,10 +35,61 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function GenerationCard({ generation }: GenerationCardProps) {
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(generation.isFavorite ?? false);
+  const [shareToken, setShareToken] = useState(generation.shareToken ?? null);
+  const [shareCopied, setShareCopied] = useState(false);
+
+  const utils = trpc.useUtils();
+
   const isProcessing = ["PENDING", "QUEUED", "PROCESSING"].includes(generation.status);
   const isFailed = generation.status === "FAILED";
   const isComplete = generation.status === "COMPLETED";
   const imageUrl = generation.outputUrls[0];
+
+  const favoriteMutation = trpc.generations.toggleFavorite.useMutation({
+    onMutate: () => setIsFavorite((v) => !v),
+    onError: () => setIsFavorite((v) => !v), // revert on error
+    onSuccess: () => utils.generations.list.invalidate(),
+  });
+
+  const shareMutation = trpc.generations.createShareLink.useMutation({
+    onSuccess: async ({ shareToken: token }) => {
+      setShareToken(token);
+      const url = `${window.location.origin}/share/${token}`;
+      await navigator.clipboard.writeText(url).catch(() => {});
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    },
+  });
+
+  const handleFavorite = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    favoriteMutation.mutate({ id: generation.id });
+  };
+
+  const handleShare = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (shareToken) {
+      const url = `${window.location.origin}/share/${shareToken}`;
+      await navigator.clipboard.writeText(url).catch(() => {});
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+      return;
+    }
+    shareMutation.mutate({ id: generation.id });
+  };
+
+  const handleDownload = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (imageUrl) {
+      const a = document.createElement("a");
+      a.href = imageUrl;
+      a.download = `aura-${generation.id}.${generation.mediaType === "VIDEO" ? "mp4" : "webp"}`;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.click();
+    }
+  };
 
   return (
     <div className="relative overflow-hidden rounded-xl bg-[#141414] group">
@@ -97,6 +152,13 @@ export function GenerationCard({ generation }: GenerationCardProps) {
           )} />
         </div>
 
+        {/* Favorite indicator (always visible if favorited) */}
+        {isFavorite && (
+          <div className="absolute top-2 right-2">
+            <Heart className="h-3.5 w-3.5 fill-pink-400 text-pink-400" />
+          </div>
+        )}
+
         {/* Hover overlay */}
         {isComplete && imageUrl && (
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200">
@@ -105,17 +167,32 @@ export function GenerationCard({ generation }: GenerationCardProps) {
                 {generation.workflow.name}
               </span>
               <div className="flex items-center gap-1.5 flex-shrink-0">
-                <button className="h-7 w-7 rounded-md bg-black/40 backdrop-blur-sm flex items-center justify-center hover:bg-black/60 transition-colors">
-                  <Heart className="h-3.5 w-3.5 text-white" />
+                <button
+                  onClick={handleFavorite}
+                  disabled={favoriteMutation.isPending}
+                  className="h-7 w-7 rounded-md bg-black/40 backdrop-blur-sm flex items-center justify-center hover:bg-black/60 transition-colors"
+                  title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+                >
+                  <Heart className={cn("h-3.5 w-3.5", isFavorite ? "fill-pink-400 text-pink-400" : "text-white")} />
                 </button>
                 <button
-                  onClick={() => window.open(imageUrl, "_blank")}
+                  onClick={handleShare}
+                  disabled={shareMutation.isPending}
                   className="h-7 w-7 rounded-md bg-black/40 backdrop-blur-sm flex items-center justify-center hover:bg-black/60 transition-colors"
+                  title={shareCopied ? "Link copied!" : "Copy share link"}
+                >
+                  {shareMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 text-white animate-spin" />
+                  ) : (
+                    <Link2 className={cn("h-3.5 w-3.5", shareCopied ? "text-green-400" : "text-white")} />
+                  )}
+                </button>
+                <button
+                  onClick={handleDownload}
+                  className="h-7 w-7 rounded-md bg-black/40 backdrop-blur-sm flex items-center justify-center hover:bg-black/60 transition-colors"
+                  title="Download"
                 >
                   <Download className="h-3.5 w-3.5 text-white" />
-                </button>
-                <button className="h-7 w-7 rounded-md bg-black/40 backdrop-blur-sm flex items-center justify-center hover:bg-black/60 transition-colors">
-                  <MoreHorizontal className="h-3.5 w-3.5 text-white" />
                 </button>
               </div>
             </div>

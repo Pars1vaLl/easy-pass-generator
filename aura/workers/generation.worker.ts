@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { ModelDispatcher, compilePrompt } from "../src/lib/dispatcher/ModelDispatcher";
 import { decryptWorkflowConfig } from "../src/lib/crypto";
 import { uploadToR2, generateMediaKey } from "../src/lib/storage";
+import { publishUserEvent } from "../src/lib/pubsub";
 import type { WorkflowConfig } from "./types";
 
 const connection = {
@@ -11,13 +12,6 @@ const connection = {
 
 const db = new PrismaClient();
 const dispatcher = new ModelDispatcher();
-
-// Simple SSE notification via Redis publish
-async function publishEvent(userId: string, event: object): Promise<void> {
-  // In production, use a Redis pub/sub mechanism
-  // For now, we rely on polling-based invalidation
-  console.log(`[SSE] User ${userId}:`, event);
-}
 
 async function fetchMediaBuffer(url: string): Promise<{ buffer: Buffer; contentType: string }> {
   const response = await fetch(url);
@@ -39,7 +33,13 @@ const worker = new Worker(
 
     const generation = await db.generation.findUniqueOrThrow({
       where: { id: generationId },
-      include: { workflow: true },
+      include: { workflow: true, user: { select: { email: true, name: true } } },
+    });
+
+    // Notify processing started
+    await publishUserEvent(generation.userId, {
+      type: "generation.processing",
+      generationId,
     });
 
     let workflowConfig: WorkflowConfig;
@@ -87,11 +87,19 @@ const worker = new Worker(
       },
     });
 
-    await publishEvent(generation.userId, {
+    // Notify completion via pub/sub
+    await publishUserEvent(generation.userId, {
       type: "generation.completed",
       generationId,
       thumbnailUrl,
     });
+
+    // Send completion email if configured
+    if (generation.user.email) {
+      sendCompletionEmail(generation.user.email, generation.user.name, generationId).catch(
+        (err) => console.error("[email] Failed to send completion email:", err)
+      );
+    }
   },
   {
     connection,
@@ -103,10 +111,66 @@ const worker = new Worker(
 worker.on("failed", async (job, err) => {
   if (!job) return;
   const { generationId } = job.data as { generationId: string };
-  await db.generation.update({
+
+  const generation = await db.generation.update({
     where: { id: generationId },
     data: { status: "FAILED", errorMessage: err.message },
-  }).catch(console.error);
+    select: { userId: true, creditsCost: true },
+  }).catch(() => null);
+
+  if (generation) {
+    // Refund credits on permanent failure (after all retries exhausted)
+    if (job.attemptsMade >= (job.opts.attempts ?? 1)) {
+      await db.user.update({
+        where: { id: generation.userId },
+        data: { credits: { increment: generation.creditsCost } },
+      }).catch(console.error);
+    }
+
+    await publishUserEvent(generation.userId, {
+      type: "generation.failed",
+      generationId,
+      error: err.message,
+    });
+  }
 });
 
-console.log("Generation worker started");
+async function sendCompletionEmail(email: string, name: string | null, generationId: string) {
+  const { Resend } = await import("resend");
+  const resend = new Resend(process.env.RESEND_API_KEY);
+  const appUrl = process.env.NEXTAUTH_URL ?? "https://aura.app";
+
+  await resend.emails.send({
+    from: process.env.EMAIL_FROM ?? "AURA <noreply@aura.app>",
+    to: email,
+    subject: "Your creation is ready ✨",
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0a0a0a;color:#f0f0f0;border-radius:12px;">
+        <h1 style="font-size:24px;margin-bottom:8px;">Your creation is ready!</h1>
+        <p style="color:#a0a0a0;margin-bottom:24px;">
+          Hey ${name ?? "there"}, your AI generation has completed successfully.
+        </p>
+        <a href="${appUrl}/gallery" style="display:inline-block;padding:12px 24px;background:#7c5af5;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">
+          View in Gallery
+        </a>
+        <p style="color:#606060;font-size:12px;margin-top:32px;">
+          You're receiving this because you have email notifications enabled.
+        </p>
+      </div>
+    `,
+  });
+}
+
+// Graceful shutdown
+async function shutdown(signal: string) {
+  console.log(`[worker] Received ${signal}, shutting down gracefully...`);
+  await worker.close();
+  await db.$disconnect();
+  console.log("[worker] Shutdown complete");
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
+console.log("[worker] Generation worker started");

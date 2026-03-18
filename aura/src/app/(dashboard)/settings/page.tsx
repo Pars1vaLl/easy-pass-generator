@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,11 +8,25 @@ import { Label } from "@/components/ui/label";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Gem, User, Shield, CreditCard } from "lucide-react";
+import { Gem, User, Shield, CreditCard, CheckCircle2, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 const profileSchema = z.object({
   name: z.string().min(1).max(100),
+});
+
+const passwordSchema = z.object({
+  currentPassword: z.string().min(1, "Required"),
+  newPassword: z
+    .string()
+    .min(8, "At least 8 characters")
+    .regex(/[A-Z]/, "Must contain an uppercase letter")
+    .regex(/[0-9]/, "Must contain a number")
+    .regex(/[^A-Za-z0-9]/, "Must contain a special character"),
+  confirmPassword: z.string(),
+}).refine((d) => d.newPassword === d.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
 });
 
 const PLAN_DETAILS = {
@@ -23,18 +38,48 @@ const PLAN_DETAILS = {
 
 export default function SettingsPage() {
   const utils = trpc.useUtils();
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+
   const { data: user, isLoading } = trpc.users.me.useQuery();
 
   const updateMutation = trpc.users.updateProfile.useMutation({
     onSuccess: () => utils.users.me.invalidate(),
   });
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({
+  const changePasswordMutation = trpc.users.changePassword.useMutation({
+    onSuccess: () => {
+      setPasswordSuccess(true);
+      setPasswordError(null);
+      setShowPasswordForm(false);
+      passwordForm.reset();
+      setTimeout(() => setPasswordSuccess(false), 4000);
+    },
+    onError: (err) => {
+      setPasswordError(err.message);
+    },
+  });
+
+  const profileForm = useForm({
     resolver: zodResolver(profileSchema),
     values: { name: user?.name ?? "" },
   });
 
-  const onSubmit = (data: { name: string }) => updateMutation.mutate(data);
+  const passwordForm = useForm({
+    resolver: zodResolver(passwordSchema),
+    defaultValues: { currentPassword: "", newPassword: "", confirmPassword: "" },
+  });
+
+  const onProfileSubmit = (data: { name: string }) => updateMutation.mutate(data);
+
+  const onPasswordSubmit = (data: z.infer<typeof passwordSchema>) => {
+    setPasswordError(null);
+    changePasswordMutation.mutate({
+      currentPassword: data.currentPassword,
+      newPassword: data.newPassword,
+    });
+  };
 
   if (isLoading) return null;
 
@@ -57,12 +102,12 @@ export default function SettingsPage() {
           <h2 className="text-lg font-semibold text-[#f0f0f0]">Profile</h2>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={profileForm.handleSubmit(onProfileSubmit)} className="space-y-4">
           <div className="space-y-2">
             <Label>Display Name</Label>
-            <Input placeholder="Your name" {...register("name")} />
-            {errors.name && (
-              <p className="text-xs text-red-400">{errors.name.message}</p>
+            <Input placeholder="Your name" {...profileForm.register("name")} />
+            {profileForm.formState.errors.name && (
+              <p className="text-xs text-red-400">{profileForm.formState.errors.name.message}</p>
             )}
           </div>
 
@@ -78,7 +123,10 @@ export default function SettingsPage() {
             </div>
           )}
 
-          <Button type="submit" disabled={isSubmitting || updateMutation.isPending}>
+          <Button
+            type="submit"
+            disabled={profileForm.formState.isSubmitting || updateMutation.isPending}
+          >
             {updateMutation.isPending ? "Saving..." : "Save Changes"}
           </Button>
         </form>
@@ -117,9 +165,91 @@ export default function SettingsPage() {
           <Shield className="h-5 w-5 text-[#7c5af5]" />
           <h2 className="text-lg font-semibold text-[#f0f0f0]">Security</h2>
         </div>
-        <Button variant="outline" size="sm">
-          Change Password
-        </Button>
+
+        {/* Success message */}
+        {passwordSuccess && (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm">
+            <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+            Password changed successfully.
+          </div>
+        )}
+
+        {!showPasswordForm ? (
+          <Button variant="outline" size="sm" onClick={() => setShowPasswordForm(true)}>
+            Change Password
+          </Button>
+        ) : (
+          <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Current Password</Label>
+              <Input
+                type="password"
+                placeholder="••••••••"
+                {...passwordForm.register("currentPassword")}
+              />
+              {passwordForm.formState.errors.currentPassword && (
+                <p className="text-xs text-red-400">
+                  {passwordForm.formState.errors.currentPassword.message}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>New Password</Label>
+              <Input
+                type="password"
+                placeholder="••••••••"
+                {...passwordForm.register("newPassword")}
+              />
+              {passwordForm.formState.errors.newPassword && (
+                <p className="text-xs text-red-400">
+                  {passwordForm.formState.errors.newPassword.message}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Confirm New Password</Label>
+              <Input
+                type="password"
+                placeholder="••••••••"
+                {...passwordForm.register("confirmPassword")}
+              />
+              {passwordForm.formState.errors.confirmPassword && (
+                <p className="text-xs text-red-400">
+                  {passwordForm.formState.errors.confirmPassword.message}
+                </p>
+              )}
+            </div>
+
+            {passwordError && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                {passwordError}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button
+                type="submit"
+                disabled={changePasswordMutation.isPending}
+              >
+                {changePasswordMutation.isPending ? "Saving..." : "Update Password"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setShowPasswordForm(false);
+                  setPasswordError(null);
+                  passwordForm.reset();
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        )}
       </section>
     </div>
   );

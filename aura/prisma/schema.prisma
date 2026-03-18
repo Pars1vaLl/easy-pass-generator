@@ -25,11 +25,12 @@ model User {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  accounts    Account[]
-  sessions    Session[]
-  generations Generation[]
-  collections Collection[]
-  auditLogs   AuditLog[]
+  accounts       Account[]
+  sessions       Session[]
+  generations    Generation[]
+  collections    Collection[]
+  auditLogs      AuditLog[]
+  promptHistory  PromptHistory[]
 
   @@index([email])
   @@index([phone])
@@ -141,6 +142,8 @@ model Generation {
   errorMessage   String?
   jobId          String?
   creditsCost    Int
+  isFavorite     Boolean          @default(false)
+  shareToken     String?          @unique
   createdAt      DateTime         @default(now())
   completedAt    DateTime?
   expiresAt      DateTime?
@@ -151,8 +154,10 @@ model Generation {
   collections CollectionItem[]
 
   @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, isFavorite])
   @@index([status])
   @@index([jobId])
+  @@index([shareToken])
 }
 
 enum GenerationStatus {
@@ -192,6 +197,22 @@ model CollectionItem {
   generation Generation @relation(fields: [generationId], references: [id])
 
   @@unique([collectionId, generationId])
+}
+
+// ─── Prompt History ──────────────────────────────────────
+
+model PromptHistory {
+  id         String   @id @default(cuid())
+  userId     String
+  prompt     String   @db.Text
+  workflowId String?
+  usedCount  Int      @default(1)
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, lastUsedAt(sort: Desc)])
 }
 
 // ─── Audit Log ───────────────────────────────────────────

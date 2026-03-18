@@ -11,9 +11,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc/client";
-import { Sparkles, Gem, ArrowLeft } from "lucide-react";
+import { Sparkles, Gem, ArrowLeft, History, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
+import { useState as useDropdownState } from "react";
 
 interface UserInputField {
   name: string;
@@ -48,6 +49,12 @@ export function WorkflowCreator({
 }: WorkflowCreatorProps) {
   const router = useRouter();
   const [charCount, setCharCount] = useState(0);
+  const [showHistory, setShowHistory] = useDropdownState(false);
+
+  const { data: promptHistory } = trpc.promptHistory.list.useQuery(
+    { workflowId, limit: 10 },
+    { enabled: showHistory }
+  );
 
   const createMutation = trpc.generations.create.useMutation({
     onSuccess: () => {
@@ -60,7 +67,7 @@ export function WorkflowCreator({
     params: z.record(z.string(), z.unknown()).optional(),
   });
 
-  const { register, handleSubmit, control, formState: { errors } } = useForm({
+  const { register, handleSubmit, control, setValue, formState: { errors } } = useForm({
     resolver: zodResolver(schema),
   });
 
@@ -116,7 +123,43 @@ export function WorkflowCreator({
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
         {/* Main prompt */}
         <div className="space-y-2">
-          <Label>Describe your vision</Label>
+          <div className="flex items-center justify-between">
+            <Label>Describe your vision</Label>
+            <button
+              type="button"
+              onClick={() => setShowHistory((v) => !v)}
+              className="flex items-center gap-1 text-xs text-[#7c5af5] hover:text-[#9b7fff] transition-colors"
+            >
+              <History className="h-3.5 w-3.5" />
+              History
+              <ChevronDown className={`h-3 w-3 transition-transform ${showHistory ? "rotate-180" : ""}`} />
+            </button>
+          </div>
+
+          {/* Prompt history dropdown */}
+          {showHistory && (
+            <div className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] divide-y divide-[#1a1a1a] max-h-48 overflow-y-auto">
+              {!promptHistory || promptHistory.length === 0 ? (
+                <p className="text-xs text-[#606060] px-3 py-2">No recent prompts</p>
+              ) : (
+                promptHistory.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setValue("userPrompt", item.prompt);
+                      setCharCount(item.prompt.length);
+                      setShowHistory(false);
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs text-[#c0c0c0] hover:bg-[#1a1a1a] transition-colors truncate"
+                  >
+                    {item.prompt}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+
           <div className="relative">
             <Textarea
               placeholder="A majestic mountain at golden hour, with mist rolling through the valleys..."
