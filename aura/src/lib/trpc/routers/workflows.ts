@@ -4,6 +4,79 @@ import { TRPCError } from "@trpc/server";
 import { encryptWorkflowConfig, decryptWorkflowConfig } from "@/lib/crypto";
 import { WorkflowCategory } from "@prisma/client";
 
+// ─── Shared model config validation ──────────────────────────────────────────
+
+const aiModelSchema = z.enum([
+  "nanobanana-v2",
+  "seedance-image-v1",
+  "gpt-image-1",
+  "sora-2",
+  "kling-ai-v1.5",
+  "seedance-video-v1",
+  "veo-3.1",
+]);
+
+const userInputFieldSchema = z.object({
+  name: z.string().min(1).regex(/^\w+$/, "Field name must be alphanumeric"),
+  label: z.string().min(1),
+  type: z.enum(["text", "textarea", "select", "slider", "toggle"]),
+  placeholder: z.string().optional(),
+  required: z.boolean(),
+  maxLength: z.number().int().positive().optional(),
+  options: z
+    .array(z.object({ label: z.string(), value: z.string() }))
+    .optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  default: z.unknown().optional(),
+});
+
+const promptTemplateSchema = z.union([
+  // New: template string with {{variable}} placeholders
+  z.object({
+    template: z.string().min(1, "Template string is required"),
+    system: z.string().optional(),
+    negativePrompt: z.string().optional(),
+  }),
+  // Legacy: prefix / suffix
+  z.object({
+    prefix: z.string(),
+    suffix: z.string(),
+    system: z.string().optional(),
+    negativePrompt: z.string().optional(),
+  }),
+]);
+
+const modelParametersSchema = z
+  .object({
+    width: z.number().int().positive().optional(),
+    height: z.number().int().positive().optional(),
+    aspectRatio: z.string().optional(),
+    steps: z.number().int().positive().optional(),
+    cfgScale: z.number().positive().optional(),
+    seed: z.union([z.number().int(), z.literal("random")]).optional(),
+    duration: z.number().positive().optional(),
+    fps: z.number().int().positive().optional(),
+    motionStrength: z.number().optional(),
+    style: z.string().optional(),
+    quality: z.enum(["draft", "standard", "hd"]).optional(),
+  })
+  .passthrough(); // allow extra keys for provider-specific params
+
+const workflowConfigSchema = z.object({
+  mediaType: z.enum(["image", "video"]),
+  model: z.object({
+    primary: aiModelSchema,
+    fallback: aiModelSchema.optional(),
+  }),
+  promptTemplate: promptTemplateSchema,
+  parameters: modelParametersSchema,
+  userInputSchema: z.array(userInputFieldSchema).default([]),
+  creditCost: z.number().int().positive().optional(),
+});
+
+// ─── Router ───────────────────────────────────────────────────────────────────
+
 export const workflowsRouter = router({
   list: publicProcedure
     .input(
@@ -44,16 +117,13 @@ export const workflowsRouter = router({
           tags: true,
           creditCost: true,
           isFeatured: true,
-          // Never expose modelConfig or promptTemplate
         },
       });
 
       return {
         workflows: workflows.slice(0, input.limit),
         nextCursor:
-          workflows.length > input.limit
-            ? workflows[input.limit].id
-            : undefined,
+          workflows.length > input.limit ? workflows[input.limit].id : undefined,
       };
     }),
 
@@ -73,16 +143,11 @@ export const workflowsRouter = router({
           tags: true,
           creditCost: true,
           isFeatured: true,
-          promptTemplate: false, // Never expose
-          modelConfig: false,    // Never expose
         },
       });
 
-      if (!workflow) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
+      if (!workflow) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // Get user input schema from modelConfig (admin-only field)
       const raw = await ctx.db.workflow.findUnique({
         where: { slug: input.slug },
         select: { modelConfig: true },
@@ -96,7 +161,6 @@ export const workflowsRouter = router({
           );
           userInputSchema = config.userInputSchema ?? [];
         } catch {
-          // Fallback to raw JSON if not encrypted
           const config = raw.modelConfig as { userInputSchema?: unknown[] };
           userInputSchema = config.userInputSchema ?? [];
         }
@@ -105,39 +169,47 @@ export const workflowsRouter = router({
       return { ...workflow, userInputSchema };
     }),
 
-  // Admin procedures
+  // ─── Admin procedures ─────────────────────────────────────────────────────
+
   adminList: adminProcedure.query(async ({ ctx }) => {
-    return ctx.db.workflow.findMany({
-      orderBy: { createdAt: "desc" },
-    });
+    return ctx.db.workflow.findMany({ orderBy: { createdAt: "desc" } });
   }),
 
   adminCreate: adminProcedure
     .input(
       z.object({
         name: z.string().min(1),
-        slug: z.string().min(1).regex(/^[a-z0-9-]+$/),
-        description: z.string(),
+        slug: z.string().min(1).regex(/^[a-z0-9-]+$/, "Slug must be lowercase with hyphens"),
+        description: z.string().min(1),
         category: z.nativeEnum(WorkflowCategory),
         coverImageUrl: z.string().url(),
-        previewUrls: z.array(z.string()).max(4),
-        tags: z.array(z.string()),
-        creditCost: z.number().min(1),
+        previewUrls: z.array(z.string().url()).max(4).default([]),
+        tags: z.array(z.string()).default([]),
+        creditCost: z.number().int().min(1),
         isActive: z.boolean().default(true),
         isFeatured: z.boolean().default(false),
-        modelConfig: z.record(z.string(), z.unknown()),
-        promptTemplate: z.record(z.string(), z.unknown()),
+        // Validated against the schema; stored encrypted
+        modelConfig: workflowConfigSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const encryptedConfig = encryptWorkflowConfig(input.modelConfig);
-      const encryptedPrompt = encryptWorkflowConfig(input.promptTemplate);
+      const { modelConfig, ...rest } = input;
+
+      // Override creditCost from modelConfig if explicitly set there
+      const effectiveCreditCost = input.creditCost;
+
+      const encryptedConfig = encryptWorkflowConfig(modelConfig);
+      // Keep a plaintext copy of the prompt template for quick access without decryption
+      const promptTemplate = "template" in modelConfig.promptTemplate
+        ? { template: modelConfig.promptTemplate.template }
+        : { prefix: modelConfig.promptTemplate.prefix, suffix: modelConfig.promptTemplate.suffix };
 
       return ctx.db.workflow.create({
         data: {
-          ...input,
+          ...rest,
+          creditCost: effectiveCreditCost,
           modelConfig: encryptedConfig,
-          promptTemplate: encryptedPrompt,
+          promptTemplate,
         },
       });
     }),
@@ -150,25 +222,30 @@ export const workflowsRouter = router({
         description: z.string().optional(),
         category: z.nativeEnum(WorkflowCategory).optional(),
         coverImageUrl: z.string().url().optional(),
-        previewUrls: z.array(z.string()).max(4).optional(),
+        previewUrls: z.array(z.string().url()).max(4).optional(),
         tags: z.array(z.string()).optional(),
-        creditCost: z.number().min(1).optional(),
+        creditCost: z.number().int().min(1).optional(),
         isActive: z.boolean().optional(),
         isFeatured: z.boolean().optional(),
-        modelConfig: z.record(z.string(), z.unknown()).optional(),
-        promptTemplate: z.record(z.string(), z.unknown()).optional(),
+        modelConfig: workflowConfigSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, modelConfig, promptTemplate, ...rest } = input;
+      const { id, modelConfig, ...rest } = input;
+
+      let modelConfigUpdate: Record<string, unknown> = {};
+      if (modelConfig) {
+        const encryptedConfig = encryptWorkflowConfig(modelConfig);
+        const promptTemplate = "template" in modelConfig.promptTemplate
+          ? { template: modelConfig.promptTemplate.template }
+          : { prefix: modelConfig.promptTemplate.prefix, suffix: modelConfig.promptTemplate.suffix };
+
+        modelConfigUpdate = { modelConfig: encryptedConfig, promptTemplate };
+      }
 
       return ctx.db.workflow.update({
         where: { id },
-        data: {
-          ...rest,
-          ...(modelConfig && { modelConfig: encryptWorkflowConfig(modelConfig) }),
-          ...(promptTemplate && { promptTemplate: encryptWorkflowConfig(promptTemplate) }),
-        },
+        data: { ...rest, ...modelConfigUpdate },
       });
     }),
 
@@ -177,5 +254,23 @@ export const workflowsRouter = router({
     .mutation(async ({ ctx, input }) => {
       await ctx.db.workflow.delete({ where: { id: input.id } });
       return { success: true };
+    }),
+
+  /** Validate a modelConfig object without saving — useful for the admin UI */
+  adminValidateConfig: adminProcedure
+    .input(z.object({ config: z.record(z.string(), z.unknown()) }))
+    .mutation(({ input }) => {
+      const result = workflowConfigSchema.safeParse(input.config);
+      if (!result.success) {
+        return { valid: false, errors: result.error.flatten().fieldErrors };
+      }
+      // Return which template variables are used for docs
+      const pt = result.data.promptTemplate;
+      const variables: string[] = [];
+      if ("template" in pt) {
+        const matches = [...pt.template.matchAll(/\{\{(\w+)\}\}/g)];
+        variables.push(...new Set(matches.map((m) => m[1])));
+      }
+      return { valid: true, errors: null, variables };
     }),
 });

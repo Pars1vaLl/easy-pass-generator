@@ -144,6 +144,7 @@ model Generation {
   creditsCost    Int
   isFavorite     Boolean          @default(false)
   shareToken     String?          @unique
+  params         Json?
   createdAt      DateTime         @default(now())
   completedAt    DateTime?
   expiresAt      DateTime?

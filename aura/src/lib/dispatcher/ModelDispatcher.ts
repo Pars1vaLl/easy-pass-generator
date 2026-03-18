@@ -269,12 +269,43 @@ export class ModelDispatcher {
   }
 }
 
+/**
+ * Compile a prompt template into a final prompt string.
+ *
+ * Supports two formats:
+ * 1. Template string: Use `{{userPrompt}}` and `{{fieldName}}` placeholders.
+ *    Example: "A {{style}} portrait of {{userPrompt}}, studio lighting"
+ * 2. Legacy prefix/suffix: Final = prefix + userPrompt + suffix
+ *
+ * Params values are interpolated for `{{fieldName}}` references.
+ * Missing variables are replaced with an empty string.
+ */
 export function compilePrompt(
-  template: { prefix: string; suffix: string; system?: string; negativePrompt?: string },
-  userPrompt: string
+  template: { template?: string; prefix?: string; suffix?: string; system?: string; negativePrompt?: string },
+  userPrompt: string,
+  params: Record<string, unknown> = {}
 ): CompiledPrompt {
+  let text: string;
+
+  if (typeof template.template === "string" && template.template.length > 0) {
+    // New template syntax: interpolate {{variable}} placeholders
+    const vars: Record<string, string> = { userPrompt };
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null) vars[k] = String(v);
+    }
+    text = template.template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => vars[key] ?? "");
+  } else {
+    // Legacy prefix/suffix syntax
+    const prefix = template.prefix ?? "";
+    const suffix = template.suffix ?? "";
+    text = `${prefix}${userPrompt}${suffix}`;
+  }
+
+  // Collapse multiple spaces and trim
+  text = text.replace(/\s{2,}/g, " ").trim();
+
   return {
-    text: `${template.prefix}${userPrompt}${template.suffix}`,
+    text,
     negativePrompt: template.negativePrompt,
     system: template.system,
   };

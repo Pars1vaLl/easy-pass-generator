@@ -49,6 +49,7 @@ export const generationsRouter = router({
             userId: user.id,
             workflowId: input.workflowId,
             userPrompt: input.userPrompt,
+            params: input.params ?? {},
             status: "PENDING",
             mediaType,
             creditsCost: workflow.creditCost,

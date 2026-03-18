@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useForm, Controller } from "react-hook-form";
+import { useForm, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { motion } from "framer-motion";
@@ -11,23 +11,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc/client";
-import { Sparkles, Gem, ArrowLeft, History, ChevronDown } from "lucide-react";
+import { compilePromptPreview, extractTemplateVariables } from "@/lib/compilePrompt";
+import { Sparkles, Gem, ArrowLeft, History, ChevronDown, Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
-import { useState as useDropdownState } from "react";
-
-interface UserInputField {
-  name: string;
-  label: string;
-  type: "text" | "textarea" | "select" | "slider" | "toggle";
-  placeholder?: string;
-  required: boolean;
-  maxLength?: number;
-  options?: { label: string; value: string }[];
-  min?: number;
-  max?: number;
-  default?: unknown;
-}
+import type { UserInputField } from "@/../../workers/types";
 
 interface WorkflowCreatorProps {
   workflowId: string;
@@ -36,6 +24,7 @@ interface WorkflowCreatorProps {
   previewUrls: string[];
   creditCost: number;
   userInputSchema: UserInputField[];
+  promptTemplatePreview: { template?: string; prefix?: string; suffix?: string } | null;
 }
 
 const MAX_PROMPT = 500;
@@ -43,13 +32,15 @@ const MAX_PROMPT = 500;
 export function WorkflowCreator({
   workflowId,
   workflowName,
+  workflowSlug,
   previewUrls,
   creditCost,
   userInputSchema,
+  promptTemplatePreview,
 }: WorkflowCreatorProps) {
   const router = useRouter();
-  const [charCount, setCharCount] = useState(0);
-  const [showHistory, setShowHistory] = useDropdownState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showPreview, setShowPreview] = useState(!!promptTemplatePreview);
 
   const { data: promptHistory } = trpc.promptHistory.list.useQuery(
     { workflowId, limit: 10 },
@@ -57,9 +48,7 @@ export function WorkflowCreator({
   );
 
   const createMutation = trpc.generations.create.useMutation({
-    onSuccess: () => {
-      router.push("/gallery");
-    },
+    onSuccess: () => router.push("/gallery"),
   });
 
   const schema = z.object({
@@ -69,7 +58,26 @@ export function WorkflowCreator({
 
   const { register, handleSubmit, control, setValue, formState: { errors } } = useForm({
     resolver: zodResolver(schema),
+    defaultValues: {
+      userPrompt: "",
+      params: Object.fromEntries(
+        userInputSchema.map((f) => [f.name, f.default ?? ""])
+      ),
+    },
   });
+
+  // Watch all values for live preview
+  const watchedPrompt = useWatch({ control, name: "userPrompt" }) as string;
+  const watchedParams = useWatch({ control, name: "params" }) as Record<string, unknown>;
+
+  const compiledPreview = promptTemplatePreview
+    ? compilePromptPreview(promptTemplatePreview, watchedPrompt || "…", watchedParams ?? {})
+    : null;
+
+  // Which template variables are referenced beyond userPrompt?
+  const templateVars = promptTemplatePreview?.template
+    ? extractTemplateVariables(promptTemplatePreview.template)
+    : [];
 
   const onSubmit = (data: { userPrompt: string; params?: Record<string, unknown> }) => {
     createMutation.mutate({
@@ -89,12 +97,8 @@ export function WorkflowCreator({
           </Link>
         </Button>
         <div>
-          <h1 className="text-xl font-display font-bold text-[#f0f0f0]">
-            {workflowName}
-          </h1>
-          <p className="text-sm text-[#a0a0a0]">
-            Customize and generate your creation
-          </p>
+          <h1 className="text-xl font-display font-bold text-[#f0f0f0]">{workflowName}</h1>
+          <p className="text-sm text-[#a0a0a0]">Customize and generate your creation</p>
         </div>
         <div className="ml-auto flex items-center gap-1.5 text-sm text-[#c4b5fd]">
           <Gem className="h-4 w-4" />
@@ -107,12 +111,7 @@ export function WorkflowCreator({
         <div className="grid grid-cols-4 gap-2">
           {previewUrls.slice(0, 4).map((url, i) => (
             <div key={i} className="relative aspect-square rounded-lg overflow-hidden">
-              <Image
-                src={url}
-                alt={`Preview ${i + 1}`}
-                fill
-                className="object-cover"
-              />
+              <Image src={url} alt={`Preview ${i + 1}`} fill className="object-cover" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
             </div>
           ))}
@@ -125,15 +124,29 @@ export function WorkflowCreator({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label>Describe your vision</Label>
-            <button
-              type="button"
-              onClick={() => setShowHistory((v) => !v)}
-              className="flex items-center gap-1 text-xs text-[#7c5af5] hover:text-[#9b7fff] transition-colors"
-            >
-              <History className="h-3.5 w-3.5" />
-              History
-              <ChevronDown className={`h-3 w-3 transition-transform ${showHistory ? "rotate-180" : ""}`} />
-            </button>
+            <div className="flex items-center gap-3">
+              {/* Toggle preview */}
+              {compiledPreview !== null && (
+                <button
+                  type="button"
+                  onClick={() => setShowPreview((v) => !v)}
+                  className="flex items-center gap-1 text-xs text-[#606060] hover:text-[#a0a0a0] transition-colors"
+                >
+                  {showPreview ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  {showPreview ? "Hide preview" : "Show preview"}
+                </button>
+              )}
+              {/* Prompt history */}
+              <button
+                type="button"
+                onClick={() => setShowHistory((v) => !v)}
+                className="flex items-center gap-1 text-xs text-[#7c5af5] hover:text-[#9b7fff] transition-colors"
+              >
+                <History className="h-3.5 w-3.5" />
+                History
+                <ChevronDown className={`h-3 w-3 transition-transform ${showHistory ? "rotate-180" : ""}`} />
+              </button>
+            </div>
           </div>
 
           {/* Prompt history dropdown */}
@@ -148,7 +161,6 @@ export function WorkflowCreator({
                     type="button"
                     onClick={() => {
                       setValue("userPrompt", item.prompt);
-                      setCharCount(item.prompt.length);
                       setShowHistory(false);
                     }}
                     className="w-full text-left px-3 py-2 text-xs text-[#c0c0c0] hover:bg-[#1a1a1a] transition-colors truncate"
@@ -160,29 +172,27 @@ export function WorkflowCreator({
             </div>
           )}
 
+          {/* Textarea */}
           <div className="relative">
             <Textarea
               placeholder="A majestic mountain at golden hour, with mist rolling through the valleys..."
               rows={4}
-              className="resize-none text-base pr-16"
-              {...register("userPrompt", {
-                onChange: (e) => setCharCount(e.target.value.length),
-              })}
+              className="resize-none text-base"
+              maxLength={MAX_PROMPT}
+              {...register("userPrompt")}
             />
-            <span className={`absolute bottom-2 right-3 text-xs ${
-              charCount > MAX_PROMPT * 0.9 ? "text-[#f59e0b]" : "text-[#606060]"
+            <span className={`absolute bottom-2 right-3 text-xs pointer-events-none ${
+              (watchedPrompt?.length ?? 0) > MAX_PROMPT * 0.9 ? "text-[#f59e0b]" : "text-[#606060]"
             }`}>
-              {charCount} / {MAX_PROMPT}
+              {watchedPrompt?.length ?? 0} / {MAX_PROMPT}
             </span>
           </div>
           {errors.userPrompt && (
-            <p className="text-xs text-red-400">
-              {errors.userPrompt.message as string}
-            </p>
+            <p className="text-xs text-red-400">{errors.userPrompt.message as string}</p>
           )}
         </div>
 
-        {/* Dynamic fields */}
+        {/* Dynamic param fields */}
         {userInputSchema.map((field) => (
           <div key={field.name} className="space-y-2">
             <Label>
@@ -217,9 +227,7 @@ export function WorkflowCreator({
                     className="w-full h-10 rounded-lg border border-[#2a2a2a] bg-[#141414] px-3 text-sm text-[#f0f0f0] focus:outline-none focus:ring-2 focus:ring-[#7c5af5]"
                   >
                     {field.options?.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                   </select>
                 )}
@@ -272,8 +280,32 @@ export function WorkflowCreator({
                 )}
               />
             )}
+
+            {/* Hint if this field is referenced in the template */}
+            {templateVars.includes(field.name) && (
+              <p className="text-xs text-[#7c5af5]/70">
+                Used in prompt as{" "}
+                <code className="font-mono bg-[#1a1a1a] px-1 rounded">{`{{${field.name}}}`}</code>
+              </p>
+            )}
           </div>
         ))}
+
+        {/* Live prompt preview */}
+        {showPreview && compiledPreview !== null && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-xl border border-[#7c5af5]/30 bg-[#7c5af5]/5 p-4 space-y-1.5"
+          >
+            <p className="text-xs font-medium text-[#7c5af5] uppercase tracking-widest">
+              Compiled prompt preview
+            </p>
+            <p className="text-sm text-[#c0c0c0] leading-relaxed break-words">
+              {compiledPreview || <span className="text-[#606060] italic">Enter your prompt above…</span>}
+            </p>
+          </motion.div>
+        )}
 
         {/* Error */}
         {createMutation.error && (
@@ -292,7 +324,9 @@ export function WorkflowCreator({
             disabled={createMutation.isPending}
           >
             <Sparkles className="h-5 w-5 mr-2" />
-            {createMutation.isPending ? "Creating..." : `✨ Create  (costs ${creditCost} credit${creditCost !== 1 ? "s" : ""})`}
+            {createMutation.isPending
+              ? "Creating..."
+              : `✨ Create (costs ${creditCost} credit${creditCost !== 1 ? "s" : ""})`}
           </Button>
         </motion.div>
       </form>

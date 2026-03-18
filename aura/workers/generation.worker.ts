@@ -51,10 +51,18 @@ const worker = new Worker(
       workflowConfig = generation.workflow.modelConfig as unknown as WorkflowConfig;
     }
 
+    const params = (generation.params as Record<string, unknown>) ?? {};
     const compiledPrompt = compilePrompt(
       workflowConfig.promptTemplate,
-      generation.userPrompt
+      generation.userPrompt,
+      params
     );
+
+    // Persist the resolved prompt so users can inspect it later
+    await db.generation.update({
+      where: { id: generationId },
+      data: { resolvedPrompt: compiledPrompt.text },
+    });
 
     const result = await dispatcher.dispatch({
       generationId,
