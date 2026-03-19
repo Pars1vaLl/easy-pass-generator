@@ -4,8 +4,8 @@ export function Skeleton({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "animate-pulse rounded-xl bg-gradient-to-r from-[#141414] via-[#1c1c1c] to-[#141414] bg-[length:200%_100%]",
-        "animate-[shimmer_1.5s_ease-in-out_infinite]",
+        "rounded-xl bg-gradient-to-r from-[#111118] via-[#1a1a24] to-[#111118] bg-[length:200%_100%]",
+        "animate-[shimmer_1.8s_ease-in-out_infinite]",
         className
       )}
     />
@@ -22,7 +22,7 @@ export function WorkflowCardSkeleton() {
 
 export function GenerationCardSkeleton() {
   return (
-    <div className="rounded-xl overflow-hidden bg-[#141414]">
+    <div className="rounded-xl overflow-hidden bg-[#111118]">
       <Skeleton className="aspect-square w-full rounded-xl" />
     </div>
   );
@@ -30,7 +30,7 @@ export function GenerationCardSkeleton() {
 
 export function StatsCardSkeleton() {
   return (
-    <div className="rounded-xl border border-[#2a2a2a] bg-[#141414] p-4 text-center">
+    <div className="rounded-xl border border-[#1e1e2e] bg-[#111118] p-4 text-center">
       <Skeleton className="h-8 w-16 mx-auto mb-1 rounded-lg" />
       <Skeleton className="h-3 w-12 mx-auto rounded" />
     </div>

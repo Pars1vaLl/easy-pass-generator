@@ -19,7 +19,7 @@ export default async function DashboardLayout({
 
   return (
     <SessionProvider session={session}>
-      <div className="min-h-screen bg-[#0a0a0a]">
+      <div className="min-h-screen bg-[#09090f]">
         <Sidebar userRole={userRole} credits={credits} />
         <Topbar />
         {/* Desktop: offset for sidebar. Mobile: full width. */}
