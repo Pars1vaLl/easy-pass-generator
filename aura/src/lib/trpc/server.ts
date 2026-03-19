@@ -1,6 +1,7 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { checkRateLimit } from "@/lib/redis";
 import superjson from "superjson";
 import { ZodError } from "zod";
 
@@ -57,6 +58,17 @@ const enforceUserIsAdmin = t.middleware(async ({ ctx, next }) => {
   if (!user || user.role !== "ADMIN") {
     throw new TRPCError({ code: "FORBIDDEN" });
   }
+
+  // Soft rate-limit admin write operations: 120 per minute per admin
+  const { allowed } = await checkRateLimit(
+    `admin:ratelimit:${user.id}`,
+    120,
+    60 * 1000
+  );
+  if (!allowed) {
+    throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Admin rate limit exceeded" });
+  }
+
   return next({ ctx: { ...ctx, session: ctx.session, user } });
 });
 

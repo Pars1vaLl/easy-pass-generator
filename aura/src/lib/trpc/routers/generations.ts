@@ -8,7 +8,7 @@ import { auditLog } from "@/lib/audit";
 import { Plan, GenerationStatus, MediaType } from "@prisma/client";
 import { randomBytes } from "crypto";
 import { decryptWorkflowConfig } from "@/lib/crypto";
-import type { WorkflowConfig } from "@/../../workers/types";
+import type { WorkflowConfig } from "@/types/workflow";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -111,7 +111,7 @@ export const generationsRouter = router({
       }
 
       await checkGenerationRateLimit(user.id, user.plan as Plan);
-      await moderatePrompt(input.userPrompt);
+      await moderatePrompt(input.userPrompt, input.params ?? {});
 
       // Validate params against userInputSchema
       let cleanedParams: Record<string, unknown> = {};
@@ -299,7 +299,7 @@ export const generationsRouter = router({
     }),
 
   getShared: publicProcedure
-    .input(z.object({ token: z.string().min(1).max(80) }))
+    .input(z.object({ token: z.string().regex(/^[0-9a-f]{40}$/i, "Invalid share token") }))
     .query(async ({ ctx, input }) => {
       const generation = await ctx.db.generation.findFirst({
         where: { shareToken: input.token, status: "COMPLETED" },
@@ -367,6 +367,45 @@ export const generationsRouter = router({
       successRate: total > 0 ? Math.round((completed / total) * 100) : 0,
     };
   }),
+
+  retry: protectedProcedure
+    .input(z.object({ id: z.string().cuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const generation = await ctx.db.generation.findFirst({
+        where: { id: input.id, userId: ctx.user.id, status: "FAILED" },
+        select: { id: true, workflowId: true, creditsCost: true },
+      });
+
+      if (!generation) throw new TRPCError({ code: "NOT_FOUND" });
+
+      if (ctx.user.credits < generation.creditsCost) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Insufficient credits" });
+      }
+
+      await ctx.db.$transaction([
+        ctx.db.user.update({
+          where: { id: ctx.user.id },
+          data: { credits: { decrement: generation.creditsCost } },
+        }),
+        ctx.db.generation.update({
+          where: { id: input.id },
+          data: { status: "PENDING", errorMessage: null },
+        }),
+      ]);
+
+      try {
+        const { generationQueue } = await import("@/lib/queue");
+        const job = await generationQueue.add("generate", { generationId: input.id });
+        await ctx.db.generation.update({
+          where: { id: input.id },
+          data: { status: "QUEUED", jobId: job.id },
+        });
+      } catch (err) {
+        console.error("Queue error on retry:", err);
+      }
+
+      return { success: true };
+    }),
 
   // Admin
   adminList: adminProcedure

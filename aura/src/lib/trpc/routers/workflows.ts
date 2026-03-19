@@ -72,6 +72,7 @@ const workflowConfigSchema = z.object({
   promptTemplate: promptTemplateSchema,
   parameters: modelParametersSchema,
   userInputSchema: z.array(userInputFieldSchema).default([]),
+  samplePrompts: z.array(z.string().max(300)).max(8).default([]),
   creditCost: z.number().int().positive().optional(),
 });
 
@@ -115,6 +116,7 @@ export const workflowsRouter = router({
           coverImageUrl: true,
           previewUrls: true,
           tags: true,
+          samplePrompts: true,
           creditCost: true,
           isFeatured: true,
         },
@@ -141,6 +143,7 @@ export const workflowsRouter = router({
           coverImageUrl: true,
           previewUrls: true,
           tags: true,
+          samplePrompts: true,
           creditCost: true,
           isFeatured: true,
         },

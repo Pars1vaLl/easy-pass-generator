@@ -16,7 +16,7 @@ import { compilePromptPreview, extractTemplateVariables } from "@/lib/compilePro
 import { Sparkles, Gem, ArrowLeft, History, ChevronDown, Eye, EyeOff, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
-import type { UserInputField } from "@/../../workers/types";
+import type { UserInputField } from "@/types/workflow";
 
 interface WorkflowCreatorProps {
   workflowId: string;
@@ -26,6 +26,7 @@ interface WorkflowCreatorProps {
   creditCost: number;
   userInputSchema: UserInputField[];
   promptTemplatePreview: { template?: string; prefix?: string; suffix?: string } | null;
+  samplePrompts?: string[];
 }
 
 const MAX_PROMPT = 500;
@@ -38,6 +39,7 @@ export function WorkflowCreator({
   creditCost,
   userInputSchema,
   promptTemplatePreview,
+  samplePrompts = [],
 }: WorkflowCreatorProps) {
   const router = useRouter();
   const toast = useToast();
@@ -197,6 +199,23 @@ export function WorkflowCreator({
           </div>
           {errors.userPrompt && (
             <p className="text-xs text-red-400">{errors.userPrompt.message as string}</p>
+          )}
+
+          {/* Sample prompts */}
+          {samplePrompts.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {samplePrompts.map((prompt, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setValue("userPrompt", prompt)}
+                  className="px-2.5 py-1 rounded-lg border border-[#2a2a2a] bg-[#141414] text-xs text-[#808080] hover:text-[#f0f0f0] hover:border-[#7c5af5]/50 hover:bg-[#7c5af5]/10 transition-all truncate max-w-[200px]"
+                  title={prompt}
+                >
+                  {prompt.length > 40 ? prompt.slice(0, 40) + "…" : prompt}
+                </button>
+              ))}
+            </div>
           )}
         </div>
 

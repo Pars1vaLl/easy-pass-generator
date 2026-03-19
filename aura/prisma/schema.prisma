@@ -9,21 +9,22 @@ datasource db {
 // ─── Users ───────────────────────────────────────────────
 
 model User {
-  id             String    @id @default(cuid())
-  email          String?   @unique
-  emailVerified  DateTime?
-  phone          String?   @unique
-  phoneVerified  DateTime?
-  passwordHash   String?
-  name           String?
-  avatarUrl      String?
-  plan           Plan      @default(FREE)
-  credits        Int       @default(25)
-  role           Role      @default(USER)
-  banned         Boolean   @default(false)
-  bannedReason   String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                   String    @id @default(cuid())
+  email                String?   @unique
+  emailVerified        DateTime?
+  phone                String?   @unique
+  phoneVerified        DateTime?
+  passwordHash         String?
+  name                 String?
+  avatarUrl            String?
+  plan                 Plan      @default(FREE)
+  credits              Int       @default(25)
+  role                 Role      @default(USER)
+  banned               Boolean   @default(false)
+  bannedReason         String?
+  onboardingCompleted  Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   accounts       Account[]
   sessions       Session[]
@@ -88,26 +89,28 @@ model VerificationToken {
 // ─── Workflows ───────────────────────────────────────────
 
 model Workflow {
-  id            String           @id @default(cuid())
-  name          String
-  slug          String           @unique
-  description   String
-  category      WorkflowCategory
-  coverImageUrl String
-  previewUrls   String[]
-  tags          String[]
-  creditCost    Int              @default(1)
-  isActive      Boolean          @default(true)
-  isFeatured    Boolean          @default(false)
-  modelConfig   Json
+  id             String           @id @default(cuid())
+  name           String
+  slug           String           @unique
+  description    String
+  category       WorkflowCategory
+  coverImageUrl  String
+  previewUrls    String[]
+  tags           String[]
+  samplePrompts  String[]         @default([])
+  creditCost     Int              @default(1)
+  isActive       Boolean          @default(true)
+  isFeatured     Boolean          @default(false)
+  modelConfig    Json
   promptTemplate Json
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
   generations Generation[]
 
   @@index([category])
   @@index([isActive])
+  @@index([isActive, isFeatured])
 }
 
 enum WorkflowCategory {

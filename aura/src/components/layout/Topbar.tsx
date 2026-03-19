@@ -3,13 +3,20 @@
 import { Bell, ChevronDown, Gem } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@radix-ui/react-avatar";
 import { useSession } from "next-auth/react";
+import { trpc } from "@/lib/trpc/client";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 export function Topbar() {
   const { data: session } = useSession();
   const user = session?.user;
-  const credits = (user as { credits?: number })?.credits ?? 0;
+
+  // Use live DB value for credits — session value is stale after generations
+  const { data: meData } = trpc.users.me.useQuery(undefined, {
+    staleTime: 10_000,
+    refetchOnWindowFocus: true,
+  });
+  const credits = meData?.credits ?? (user as { credits?: number })?.credits ?? 0;
   const isLowCredits = credits <= 5;
 
   return (

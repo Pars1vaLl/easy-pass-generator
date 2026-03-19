@@ -4,11 +4,23 @@ import { useRef, useEffect, useState, useCallback } from "react";
 import { trpc } from "@/lib/trpc/client";
 import { GenerationGrid } from "@/components/generation/GenerationGrid";
 import { GenerationCardSkeleton, StatsCardSkeleton } from "@/components/ui/skeleton";
+import { Lightbox } from "@/components/ui/lightbox";
 import { Button } from "@/components/ui/button";
 import { Loader2, ImageIcon, Plus, Heart, Film, Sparkles, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { GenerationStatus, MediaType } from "@prisma/client";
 import { cn } from "@/lib/utils";
+
+interface OpenGeneration {
+  id: string;
+  outputUrls: string[];
+  mediaType?: string;
+  userPrompt?: string;
+  isFavorite?: boolean;
+  shareToken?: string | null;
+  workflow: { name: string };
+  createdAt: Date;
+}
 
 const STATUS_OPTIONS: { label: string; value: GenerationStatus | undefined }[] = [
   { label: "All", value: undefined },
@@ -22,6 +34,7 @@ export default function GalleryPage() {
   const [status, setStatus] = useState<GenerationStatus | undefined>(undefined);
   const [mediaType, setMediaType] = useState<MediaType | undefined>(undefined);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [lightboxGen, setLightboxGen] = useState<OpenGeneration | null>(null);
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, refetch } =
     trpc.generations.list.useInfiniteQuery(
@@ -82,6 +95,8 @@ export default function GalleryPage() {
   const handleMediaTypeChange = useCallback((v: MediaType | undefined) => setMediaType(v), []);
 
   return (
+    <>
+    <Lightbox generation={lightboxGen} onClose={() => setLightboxGen(null)} />
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
@@ -231,7 +246,10 @@ export default function GalleryPage() {
         </div>
       ) : (
         <>
-          <GenerationGrid generations={allGenerations} />
+          <GenerationGrid
+            generations={allGenerations}
+            onOpen={(g) => setLightboxGen(g as OpenGeneration)}
+          />
           <div ref={loadMoreRef} className="flex justify-center py-6">
             {isFetchingNextPage && (
               <Loader2 className="h-6 w-6 text-[#7c5af5] animate-spin" />
@@ -240,5 +258,6 @@ export default function GalleryPage() {
         </>
       )}
     </div>
+    </>
   );
 }

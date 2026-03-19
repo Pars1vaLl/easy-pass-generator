@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { decryptWorkflowConfig } from "@/lib/crypto";
 import { WorkflowCreator } from "@/components/workflow/WorkflowCreator";
-import type { WorkflowConfig } from "@/../../workers/types";
+import type { WorkflowConfig } from "@/types/workflow";
+
+export const revalidate = 300; // ISR: re-render at most every 5 minutes
 
 interface PageProps {
   params: { workflowSlug: string };
@@ -16,12 +18,14 @@ export default async function WorkflowCreatePage({ params }: PageProps) {
   if (!workflow) notFound();
 
   let userInputSchema: WorkflowConfig["userInputSchema"] = [];
+  let samplePrompts: string[] = workflow.samplePrompts ?? [];
   // Expose only prefix/suffix/template for the client preview — never expose system prompt or model secrets
   let promptTemplatePreview: { template?: string; prefix?: string; suffix?: string } | null = null;
 
   try {
     const config = decryptWorkflowConfig<WorkflowConfig>(workflow.modelConfig as string);
     userInputSchema = config.userInputSchema ?? [];
+    if (config.samplePrompts?.length) samplePrompts = config.samplePrompts;
     const pt = config.promptTemplate;
     if ("template" in pt) {
       promptTemplatePreview = { template: pt.template };
@@ -50,6 +54,7 @@ export default async function WorkflowCreatePage({ params }: PageProps) {
       creditCost={workflow.creditCost}
       userInputSchema={userInputSchema}
       promptTemplatePreview={promptTemplatePreview}
+      samplePrompts={samplePrompts}
     />
   );
 }
