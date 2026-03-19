@@ -5,7 +5,7 @@ import { WorkflowGrid } from "@/components/workflow/WorkflowGrid";
 import { WorkflowFilter } from "@/components/workflow/WorkflowFilter";
 import { WorkflowCardSkeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc/client";
-import { Loader2, Sparkles } from "lucide-react";
+import { Loader2, Sparkles, Zap } from "lucide-react";
 
 export default function ExplorePage() {
   const [category, setCategory] = useState<string | undefined>(undefined);
@@ -13,7 +13,6 @@ export default function ExplorePage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
-  // Debounce search
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
@@ -24,11 +23,10 @@ export default function ExplorePage() {
       { category: category as never, search: debouncedSearch || undefined, limit: 20 },
       {
         getNextPageParam: (lastPage) => lastPage.nextCursor,
-        staleTime: 5 * 60 * 1000, // workflows rarely change
+        staleTime: 5 * 60 * 1000,
       }
     );
 
-  // Infinite scroll
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -53,12 +51,18 @@ export default function ExplorePage() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#f0f0f0] tracking-tight">
-          Explore Styles
-        </h1>
-        <p className="text-[#606060] mt-0.5 text-sm">
-          Pick a style and bring your vision to life in two clicks
+      <div className="space-y-1">
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#f0f0f0] tracking-tight">
+            Explore Styles
+          </h1>
+          <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#7c5af5]/15 border border-[#7c5af5]/25">
+            <Zap className="h-3 w-3 text-[#a78bfa]" />
+            <span className="text-[10px] font-semibold text-[#a78bfa] uppercase tracking-wider">AI</span>
+          </div>
+        </div>
+        <p className="text-[#4b5563] text-sm">
+          Pick a style — generate in two clicks
         </p>
       </div>
 
@@ -74,32 +78,42 @@ export default function ExplorePage() {
         </div>
       ) : allWorkflows.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-32 text-center space-y-3">
-          <Sparkles className="h-12 w-12 text-[#2a2a2a]" />
-          <p className="text-[#a0a0a0] font-medium">No styles found</p>
-          <p className="text-sm text-[#606060]">Try a different search or category</p>
+          <div className="h-16 w-16 rounded-2xl bg-[#111118] border border-[#1e1e2e] flex items-center justify-center">
+            <Sparkles className="h-7 w-7 text-[#1e1e2e]" />
+          </div>
+          <p className="text-[#9ca3af] font-medium">No styles found</p>
+          <p className="text-sm text-[#4b5563]">Try a different search or category</p>
         </div>
       ) : (
         <>
-          {/* Featured section — shown only when not actively filtering */}
+          {/* Featured section — bento grid, shown when not filtering */}
           {!isFiltering && featured.length > 0 && (
             <section className="space-y-3">
               <div className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-[#7c5af5]" />
-                <h2 className="text-sm font-semibold text-[#f0f0f0] uppercase tracking-widest">
-                  Featured
-                </h2>
+                <div className="h-px flex-1 bg-gradient-to-r from-[#7c5af5]/30 to-transparent" />
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-[#7c5af5]" />
+                  <span className="text-xs font-bold text-[#7c5af5] uppercase tracking-widest">
+                    Featured
+                  </span>
+                </div>
+                <div className="h-px flex-1 bg-gradient-to-l from-[#7c5af5]/30 to-transparent" />
               </div>
-              <WorkflowGrid workflows={featured} />
+              <WorkflowGrid workflows={featured} bento />
             </section>
           )}
 
-          {/* All workflows (excluding featured when in sections mode) */}
+          {/* All styles */}
           {(!isFiltering && rest.length > 0) ? (
             <section className="space-y-3">
               {featured.length > 0 && (
-                <h2 className="text-sm font-semibold text-[#606060] uppercase tracking-widest">
-                  All Styles
-                </h2>
+                <div className="flex items-center gap-2">
+                  <div className="h-px flex-1 bg-[#1e1e2e]" />
+                  <span className="text-xs font-semibold text-[#4b5563] uppercase tracking-widest">
+                    All Styles
+                  </span>
+                  <div className="h-px flex-1 bg-[#1e1e2e]" />
+                </div>
               )}
               <WorkflowGrid workflows={rest} />
             </section>
@@ -107,10 +121,9 @@ export default function ExplorePage() {
             <WorkflowGrid workflows={allWorkflows} />
           ) : null}
 
-          {/* Infinite scroll trigger */}
           <div ref={loadMoreRef} className="flex justify-center py-4">
             {isFetchingNextPage && (
-              <Loader2 className="h-6 w-6 text-[#7c5af5] animate-spin" />
+              <Loader2 className="h-5 w-5 text-[#7c5af5] animate-spin" />
             )}
           </div>
         </>

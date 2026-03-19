@@ -10,21 +10,23 @@
 }
 
 :root {
-  --bg-primary:    #0a0a0a;
-  --bg-elevated:   #141414;
-  --bg-hover:      #1c1c1c;
-  --bg-border:     #2a2a2a;
+  /* Space-dark base — slightly blue-tinted, popular in GenAI products */
+  --bg-primary:    #09090f;
+  --bg-elevated:   #111118;
+  --bg-hover:      #1a1a24;
+  --bg-border:     #1e1e2e;
   --text-primary:  #f0f0f0;
-  --text-secondary:#a0a0a0;
-  --text-muted:    #606060;
+  --text-secondary:#9ca3af;
+  --text-muted:    #4b5563;
   --accent-primary:  #7c5af5;
   --accent-hover:    #6b47e8;
+  --accent-dim:      #a78bfa;
   --accent-glow:     rgba(124, 90, 245, 0.25);
+  --accent-teal:     #22d3ee;
   --status-processing: #f59e0b;
   --status-success:    #10b981;
   --status-error:      #ef4444;
-  --gradient-hero: linear-gradient(135deg, #7c5af5 0%, #c084fc 50%, #f472b6 100%);
-
+  --gradient-hero: linear-gradient(135deg, #7c5af5 0%, #a78bfa 50%, #818cf8 100%);
   --radius: 0.5rem;
 }
 
@@ -40,35 +42,48 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: var(--bg-elevated);
-}
+/* ─── Scrollbar ─────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
   background: var(--bg-border);
-  border-radius: 3px;
+  border-radius: 4px;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
-}
+::-webkit-scrollbar-thumb:hover { background: var(--accent-primary); }
 
-/* Focus ring */
+/* ─── Focus ring ────────────────────────────────────────────── */
 .focus-ring {
-  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c5af5] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a];
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c5af5] focus-visible:ring-offset-2 focus-visible:ring-offset-[#09090f];
 }
 
-/* Glass morphism */
+/* ─── Glass morphism ────────────────────────────────────────── */
 .glass {
-  backdrop-filter: blur(16px);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background: rgba(17, 17, 24, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-/* Gradient text */
+/* Elevated glass — for auth cards, modals */
+.glass-card {
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  background: rgba(17, 17, 24, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+/* ─── Gradient border wrapper ───────────────────────────────── */
+.gradient-border-wrap {
+  background: linear-gradient(135deg, rgba(124,90,245,0.45) 0%, rgba(34,211,238,0.2) 100%);
+  border-radius: inherit;
+  padding: 1px;
+}
+.gradient-border-wrap > * {
+  border-radius: inherit;
+}
+
+/* ─── Gradient text ─────────────────────────────────────────── */
 .gradient-text {
   background: var(--gradient-hero);
   -webkit-background-clip: text;
@@ -76,69 +91,108 @@ body {
   background-clip: text;
 }
 
-/* Masonry grid */
-.masonry-grid {
-  columns: 2;
-  column-gap: 8px;
+/* ─── Noise texture overlay ─────────────────────────────────── */
+/* Applied as a pseudo-element — painted once, 0 ongoing cost */
+.noise-overlay {
+  position: relative;
+}
+.noise-overlay::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  mix-blend-mode: overlay;
+  z-index: 1;
 }
 
-@media (min-width: 640px) {
-  .masonry-grid { columns: 3; }
+/* ─── Aurora background — static, zero repaint cost ────────── */
+/* Replaces the heavy animated gradient-shift animation */
+.aurora {
+  background:
+    radial-gradient(ellipse 80% 60% at 15% -10%, rgba(124,90,245,0.18) 0%, transparent 65%),
+    radial-gradient(ellipse 60% 50% at 85% 5%,  rgba(139,92,246,0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 50% 110%, rgba(34,211,238,0.09) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 30% at 90% 90%,  rgba(99,102,241,0.08) 0%, transparent 55%),
+    #09090f;
+  position: relative;
 }
 
-@media (min-width: 1024px) {
-  .masonry-grid { columns: 4; }
+/* Noise on aurora */
+.aurora::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  mix-blend-mode: overlay;
+  z-index: 0;
+}
+.aurora > * { position: relative; z-index: 1; }
+
+/* ─── Ambient card glow ─────────────────────────────────────── */
+/* Use on card wrappers for a hover glow with no JS */
+.card-glow {
+  position: relative;
+  transition: transform 220ms ease, box-shadow 300ms ease;
+}
+.card-glow:hover {
+  will-change: transform;
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(124,90,245,0.18), 0 0 30px -5px rgba(124,90,245,0.25);
+}
+.card-glow:not(:hover) { will-change: auto; }
+
+/* ─── Gradient text ─────────────────────────────────────────── */
+.gradient-border-left {
+  position: relative;
+}
+.gradient-border-left::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10%;
+  bottom: 10%;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(to bottom, #7c5af5, #a78bfa);
 }
 
-@media (min-width: 1280px) {
-  .masonry-grid { columns: 5; }
+/* ─── Topbar gradient border ────────────────────────────────── */
+.topbar-border::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(124,90,245,0.4) 40%, rgba(34,211,238,0.2) 60%, transparent 100%);
+  pointer-events: none;
 }
 
-.masonry-item {
-  break-inside: avoid;
-  margin-bottom: 8px;
-}
-
-/* Animated gradient background for auth pages */
-@keyframes gradient-shift {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-}
-
-.auth-bg {
-  background: linear-gradient(
-    -45deg,
-    #0a0a0a,
-    #1a0a2e,
-    #0d1a3d,
-    #0a0a0a
-  );
-  background-size: 400% 400%;
-  animation: gradient-shift 15s ease infinite;
-}
-
-/* Generation spinner */
-@keyframes generation-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.generation-spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(124, 90, 245, 0.2);
-  border-top-color: #7c5af5;
-  border-radius: 50%;
-  animation: generation-spin 0.8s linear infinite;
-}
+/* ─── Legacy / unused — kept for backwards compat ───────────── */
+/* old animated auth bg — replaced by .aurora */
+.auth-bg { @apply aurora; }
 
 @layer utilities {
-  .text-balance {
-    text-wrap: balance;
+  .text-balance { text-wrap: balance; }
+
+  .animate-spin-reverse {
+    animation: spin-reverse 2s linear infinite;
+  }
+
+  @keyframes spin-reverse {
+    from { transform: rotate(360deg); }
+    to   { transform: rotate(0deg); }
   }
 }
 
-/* Reduced motion */
+/* ─── Reduced motion ────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {
     animation-duration: 0.01ms !important;
