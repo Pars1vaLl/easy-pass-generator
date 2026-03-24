@@ -138,7 +138,7 @@ export const generationsRouter = router({
             userId: user.id,
             workflowId: input.workflowId,
             userPrompt: input.userPrompt,
-            params: cleanedParams,
+            params: JSON.stringify(cleanedParams),
             status: "PENDING",
             mediaType,
             creditsCost: workflow.creditCost,
@@ -223,7 +223,7 @@ export const generationsRouter = router({
       const withSignedUrls = await Promise.all(
         generations.map(async (g) => ({
           ...g,
-          outputUrls: await signOutputUrls(g.outputUrls),
+          outputUrls: await signOutputUrls(g.outputUrls ? JSON.parse(g.outputUrls) : []),
         }))
       );
 
@@ -248,7 +248,8 @@ export const generationsRouter = router({
 
       return {
         ...generation,
-        outputUrls: await signOutputUrls(generation.outputUrls),
+        params: generation.params ? JSON.parse(generation.params) : {},
+        outputUrls: await signOutputUrls(generation.outputUrls ? JSON.parse(generation.outputUrls) : []),
       };
     }),
 
@@ -319,7 +320,7 @@ export const generationsRouter = router({
 
       return {
         ...generation,
-        outputUrls: await signOutputUrls(generation.outputUrls),
+        outputUrls: await signOutputUrls(generation.outputUrls ? JSON.parse(generation.outputUrls) : []),
       };
     }),
 
@@ -417,7 +418,7 @@ export const generationsRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      return ctx.db.generation.findMany({
+      const generations = await ctx.db.generation.findMany({
         where: input.status ? { status: input.status } : undefined,
         orderBy: { createdAt: "desc" },
         take: input.limit,
@@ -427,5 +428,12 @@ export const generationsRouter = router({
           workflow: { select: { name: true } },
         },
       });
+      
+      return generations.map(g => ({
+        ...g,
+        outputUrls: g.outputUrls ? JSON.parse(g.outputUrls) : [],
+        params: g.params ? JSON.parse(g.params) : {},
+        metadata: g.metadata ? JSON.parse(g.metadata) : null,
+      }));
     }),
 });

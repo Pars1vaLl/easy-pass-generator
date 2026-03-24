@@ -3,7 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 // ─── Users ───────────────────────────────────────────────
@@ -56,12 +57,12 @@ model Account {
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
+  refresh_token     String?
+  access_token      String?
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String? @db.Text
+  id_token          String?
   session_state     String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -95,14 +96,14 @@ model Workflow {
   description    String
   category       WorkflowCategory
   coverImageUrl  String
-  previewUrls    String[]
-  tags           String[]
-  samplePrompts  String[]         @default([])
+  previewUrls    String           @default("[]") // JSON array
+  tags           String           @default("[]") // JSON array
+  samplePrompts  String           @default("[]") // JSON array
   creditCost     Int              @default(1)
   isActive       Boolean          @default(true)
   isFeatured     Boolean          @default(false)
-  modelConfig    Json
-  promptTemplate Json
+  modelConfig    String           // JSON
+  promptTemplate String           // JSON
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
@@ -134,20 +135,20 @@ model Generation {
   id             String           @id @default(cuid())
   userId         String
   workflowId     String
-  userPrompt     String           @db.Text
-  resolvedPrompt String?          @db.Text
+  userPrompt     String
+  resolvedPrompt String?
   status         GenerationStatus @default(PENDING)
   mediaType      MediaType
-  outputUrls     String[]
+  outputUrls     String           @default("[]") // JSON array
   thumbnailUrl   String?
   blurhash       String?
-  metadata       Json?
+  metadata       String?          // JSON
   errorMessage   String?
   jobId          String?
   creditsCost    Int
   isFavorite     Boolean          @default(false)
   shareToken     String?          @unique
-  params         Json?
+  params         String?          // JSON
   createdAt      DateTime         @default(now())
   completedAt    DateTime?
   expiresAt      DateTime?
@@ -208,7 +209,7 @@ model CollectionItem {
 model PromptHistory {
   id         String   @id @default(cuid())
   userId     String
-  prompt     String   @db.Text
+  prompt     String
   workflowId String?
   usedCount  Int      @default(1)
   createdAt  DateTime @default(now())
@@ -225,7 +226,7 @@ model AuditLog {
   id        String   @id @default(cuid())
   userId    String?
   action    String
-  metadata  Json?
+  metadata  String?  // JSON
   ip        String?
   userAgent String?
   createdAt DateTime @default(now())

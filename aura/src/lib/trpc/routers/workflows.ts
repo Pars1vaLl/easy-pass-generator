@@ -59,7 +59,12 @@ const modelParametersSchema = z
     fps: z.number().int().positive().optional(),
     motionStrength: z.number().optional(),
     style: z.string().optional(),
-    quality: z.enum(["draft", "standard", "hd"]).optional(),
+    quality: z.enum(["draft", "standard", "hd", "auto", "low", "medium", "high"]).optional(),
+    // GPT Image API specific parameters
+    size: z.enum(["1024x1024", "1024x1536", "1536x1024", "auto"]).optional(),
+    moderation: z.enum(["auto", "low"]).optional(),
+    background: z.enum(["transparent", "opaque", "auto"]).optional(),
+    n: z.number().int().min(1).max(10).optional(),
   })
   .passthrough(); // allow extra keys for provider-specific params
 
@@ -95,10 +100,7 @@ export const workflowsRouter = router({
         ...(input.category && { category: input.category }),
         ...(input.featuredOnly && { isFeatured: true }),
         ...(input.search && {
-          OR: [
-            { name: { contains: input.search, mode: "insensitive" as const } },
-            { tags: { has: input.search } },
-          ],
+          name: { contains: input.search, mode: "insensitive" as const },
         }),
       };
 
@@ -107,23 +109,18 @@ export const workflowsRouter = router({
         orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
         take: input.limit + 1,
         cursor: input.cursor ? { id: input.cursor } : undefined,
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          description: true,
-          category: true,
-          coverImageUrl: true,
-          previewUrls: true,
-          tags: true,
-          samplePrompts: true,
-          creditCost: true,
-          isFeatured: true,
-        },
       });
 
+      // Parse JSON fields for SQLite compatibility
+      const parsedWorkflows = workflows.map(w => ({
+        ...w,
+        previewUrls: w.previewUrls ? JSON.parse(w.previewUrls) : [],
+        tags: w.tags ? JSON.parse(w.tags) : [],
+        samplePrompts: w.samplePrompts ? JSON.parse(w.samplePrompts) : [],
+      }));
+
       return {
-        workflows: workflows.slice(0, input.limit),
+        workflows: parsedWorkflows.slice(0, input.limit),
         nextCursor:
           workflows.length > input.limit ? workflows[input.limit].id : undefined,
       };
@@ -134,48 +131,45 @@ export const workflowsRouter = router({
     .query(async ({ ctx, input }) => {
       const workflow = await ctx.db.workflow.findUnique({
         where: { slug: input.slug, isActive: true },
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          description: true,
-          category: true,
-          coverImageUrl: true,
-          previewUrls: true,
-          tags: true,
-          samplePrompts: true,
-          creditCost: true,
-          isFeatured: true,
-        },
       });
 
       if (!workflow) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const raw = await ctx.db.workflow.findUnique({
-        where: { slug: input.slug },
-        select: { modelConfig: true },
-      });
-
       let userInputSchema: unknown[] = [];
-      if (raw?.modelConfig) {
+      if (workflow?.modelConfig) {
         try {
           const config = decryptWorkflowConfig<{ userInputSchema?: unknown[] }>(
-            raw.modelConfig as string
+            workflow.modelConfig as string
           );
           userInputSchema = config.userInputSchema ?? [];
         } catch {
-          const config = raw.modelConfig as { userInputSchema?: unknown[] };
+          const config = JSON.parse(workflow.modelConfig) as { userInputSchema?: unknown[] };
           userInputSchema = config.userInputSchema ?? [];
         }
       }
 
-      return { ...workflow, userInputSchema };
+      // Parse JSON fields for SQLite compatibility
+      return { 
+        ...workflow, 
+        previewUrls: workflow.previewUrls ? JSON.parse(workflow.previewUrls) : [],
+        tags: workflow.tags ? JSON.parse(workflow.tags) : [],
+        samplePrompts: workflow.samplePrompts ? JSON.parse(workflow.samplePrompts) : [],
+        userInputSchema 
+      };
     }),
 
   // ─── Admin procedures ─────────────────────────────────────────────────────
 
   adminList: adminProcedure.query(async ({ ctx }) => {
-    return ctx.db.workflow.findMany({ orderBy: { createdAt: "desc" } });
+    const workflows = await ctx.db.workflow.findMany({ orderBy: { createdAt: "desc" } });
+    return workflows.map(w => ({
+      ...w,
+      previewUrls: w.previewUrls ? JSON.parse(w.previewUrls) : [],
+      tags: w.tags ? JSON.parse(w.tags) : [],
+      samplePrompts: w.samplePrompts ? JSON.parse(w.samplePrompts) : [],
+      modelConfig: w.modelConfig,
+      promptTemplate: w.promptTemplate ? JSON.parse(w.promptTemplate) : null,
+    }));
   }),
 
   adminCreate: adminProcedure
@@ -210,9 +204,11 @@ export const workflowsRouter = router({
       return ctx.db.workflow.create({
         data: {
           ...rest,
+          previewUrls: JSON.stringify(rest.previewUrls || []),
+          tags: JSON.stringify(rest.tags || []),
           creditCost: effectiveCreditCost,
           modelConfig: encryptedConfig,
-          promptTemplate,
+          promptTemplate: JSON.stringify(promptTemplate),
         },
       });
     }),
@@ -234,7 +230,7 @@ export const workflowsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, modelConfig, ...rest } = input;
+      const { id, modelConfig, previewUrls, tags, ...rest } = input;
 
       let modelConfigUpdate: Record<string, unknown> = {};
       if (modelConfig) {
@@ -243,12 +239,16 @@ export const workflowsRouter = router({
           ? { template: modelConfig.promptTemplate.template }
           : { prefix: modelConfig.promptTemplate.prefix, suffix: modelConfig.promptTemplate.suffix };
 
-        modelConfigUpdate = { modelConfig: encryptedConfig, promptTemplate };
+        modelConfigUpdate = { modelConfig: encryptedConfig, promptTemplate: JSON.stringify(promptTemplate) };
       }
+
+      const updateData: Record<string, unknown> = { ...rest, ...modelConfigUpdate };
+      if (previewUrls !== undefined) updateData.previewUrls = JSON.stringify(previewUrls);
+      if (tags !== undefined) updateData.tags = JSON.stringify(tags);
 
       return ctx.db.workflow.update({
         where: { id },
-        data: { ...rest, ...modelConfigUpdate },
+        data: updateData,
       });
     }),
 

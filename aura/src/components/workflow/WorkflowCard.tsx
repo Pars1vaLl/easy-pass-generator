@@ -6,6 +6,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, Play, Star, Gem } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Card } from "@/components/ui/card";
 
 interface WorkflowCardProps {
   id: string;
@@ -42,11 +43,14 @@ export function WorkflowCard({
   description,
   category,
   coverImageUrl,
-  previewUrls,
+  previewUrls: previewUrlsProp,
   creditCost,
   isFeatured,
   featured,
 }: WorkflowCardProps) {
+  // Ensure previewUrls is always an array
+  const previewUrls = Array.isArray(previewUrlsProp) ? previewUrlsProp : [];
+  
   const [hovered, setHovered] = useState(false);
   const [previewIndex, setPreviewIndex] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -71,9 +75,9 @@ export function WorkflowCard({
 
   return (
     <Link href={`/create/${slug}`} className="block group">
-      <div
+      <Card
         className={cn(
-          "relative overflow-hidden rounded-2xl cursor-pointer",
+          "relative overflow-hidden rounded-2xl cursor-pointer border-[#1e1e2e] bg-[#111118]",
           "transition-all duration-300",
           "group-hover:shadow-[0_16px_60px_rgba(0,0,0,0.7),0_0_0_1px_rgba(124,90,245,0.2),0_0_40px_-8px_rgba(124,90,245,0.3)]",
           "group-hover:scale-[1.02]"
@@ -180,7 +184,7 @@ export function WorkflowCard({
             )}
           </AnimatePresence>
         </div>
-      </div>
+      </Card>
     </Link>
   );
 }

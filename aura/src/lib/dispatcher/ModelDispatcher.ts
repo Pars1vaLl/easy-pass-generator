@@ -55,28 +55,58 @@ async function generateWithOpenAI(
   params: ModelParameters,
   model: "dall-e-3" | "gpt-image-1"
 ): Promise<DispatchResult> {
+  // GPT Image API (gpt-image-1) uses different parameters
+  const isGptImage = model === "gpt-image-1";
+  
+  const requestBody: Record<string, unknown> = {
+    model,
+    prompt: prompt.text,
+    n: params.n ?? 1,
+    response_format: "url",
+  };
+
+  if (isGptImage) {
+    // GPT Image API specific parameters
+    // Size can be: 1024x1024, 1024x1536, 1536x1024, auto
+    requestBody.size = params.size ?? "auto";
+    // Quality: auto, low, medium, high
+    requestBody.quality = params.quality ?? "auto";
+    // Moderation: auto, low - for content filtering
+    requestBody.moderation = params.moderation ?? "auto";
+    // Background: transparent, opaque, auto
+    if (params.background) {
+      requestBody.background = params.background;
+    }
+  } else {
+    // DALL-E 3 parameters
+    requestBody.size = `${params.width ?? 1024}x${params.height ?? 1024}`;
+    requestBody.quality = params.quality === "hd" ? "hd" : "standard";
+  }
+
   const response = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
     },
-    body: JSON.stringify({
-      model,
-      prompt: prompt.text,
-      n: 1,
-      size: `${params.width ?? 1024}x${params.height ?? 1024}`,
-      quality: params.quality === "hd" ? "hd" : "standard",
-      response_format: "url",
-    }),
+    body: JSON.stringify(requestBody),
   });
 
-  const data = await response.json() as { data?: Array<{ url: string }>; error?: { message: string } };
+  const data = await response.json() as { 
+    data?: Array<{ url: string; b64_json?: string; revised_prompt?: string }>; 
+    error?: { message: string } 
+  };
+  
   if (data.error) throw new Error(data.error.message);
 
   return {
     urls: data.data?.map((d) => d.url) ?? [],
-    metadata: { model, width: params.width ?? 1024, height: params.height ?? 1024 },
+    metadata: { 
+      model, 
+      width: params.width ?? 1024, 
+      height: params.height ?? 1024,
+      revisedPrompt: data.data?.[0]?.revised_prompt,
+    },
   };
 }
 

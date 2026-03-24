@@ -3,14 +3,6 @@ import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { db } from "./db";
-import { z } from "zod";
-
-const credentialsSchema = z.object({
-  email: z.string().email().optional(),
-  password: z.string().optional(),
-  phone: z.string().optional(),
-  otp: z.string().optional(),
-});
 
 export const authConfig: NextAuthConfig = {
   providers: [
@@ -25,14 +17,14 @@ export const authConfig: NextAuthConfig = {
       id: "email",
       name: "Email",
       credentials: {
-        email: { type: "email" },
-        password: { type: "password" },
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        const parsed = credentialsSchema.safeParse(credentials);
-        if (!parsed.success) return null;
-
-        const { email, password } = parsed.data;
+        if (!credentials?.email || !credentials?.password) return null;
+        
+        const email = String(credentials.email);
+        const password = String(credentials.password);
         if (!email || !password) return null;
 
         const user = await db.user.findUnique({ where: { email } });
@@ -44,9 +36,9 @@ export const authConfig: NextAuthConfig = {
 
         return {
           id: user.id,
-          email: user.email,
-          name: user.name,
-          image: user.avatarUrl,
+          email: user.email || email,
+          name: user.name || "",
+          image: user.avatarUrl || null,
         };
       },
     }),
@@ -54,14 +46,14 @@ export const authConfig: NextAuthConfig = {
       id: "phone",
       name: "Phone",
       credentials: {
-        phone: { type: "tel" },
-        otp: { type: "text" },
+        phone: { label: "Phone", type: "tel" },
+        otp: { label: "OTP", type: "text" },
       },
       async authorize(credentials) {
-        const parsed = credentialsSchema.safeParse(credentials);
-        if (!parsed.success) return null;
-
-        const { phone, otp } = parsed.data;
+        if (!credentials?.phone || !credentials?.otp) return null;
+        
+        const phone = String(credentials.phone);
+        const otp = String(credentials.otp);
         if (!phone || !otp) return null;
 
         // Verify OTP with Twilio
@@ -96,9 +88,9 @@ export const authConfig: NextAuthConfig = {
 
         return {
           id: user.id,
-          email: user.email,
-          name: user.name,
-          image: user.avatarUrl,
+          email: user.email || "",
+          name: user.name || "",
+          image: user.avatarUrl || null,
         };
       },
     }),
@@ -110,11 +102,11 @@ export const authConfig: NextAuthConfig = {
   },
   callbacks: {
     async jwt({ token, user, account }) {
-      if (user) {
+      if (user?.id) {
         token.userId = user.id;
         // Fetch additional user data
         const dbUser = await db.user.findUnique({
-          where: { id: user.id as string },
+          where: { id: user.id },
           select: { role: true, plan: true, credits: true },
         });
         if (dbUser) {
@@ -123,16 +115,16 @@ export const authConfig: NextAuthConfig = {
           token.credits = dbUser.credits;
         }
       }
-      if (account?.provider === "google" && user) {
+      if (account?.provider === "google" && user?.email) {
         await db.user.upsert({
-          where: { email: user.email! },
+          where: { email: user.email },
           update: {
             name: user.name,
             avatarUrl: user.image,
             emailVerified: new Date(),
           },
           create: {
-            email: user.email!,
+            email: user.email,
             name: user.name,
             avatarUrl: user.image,
             emailVerified: new Date(),

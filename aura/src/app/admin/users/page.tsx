@@ -1,28 +1,36 @@
-"use client";
+"use client"
 
-import { useState } from "react";
-import { trpc } from "@/lib/trpc/client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Search, Ban, Check, Loader2 } from "lucide-react";
+import { useState } from "react"
+import { trpc } from "@/lib/trpc/client"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { Search, Ban, Check, Loader2 } from "lucide-react"
 
 export default function AdminUsersPage() {
-  const [search, setSearch] = useState("");
-  const utils = trpc.useUtils();
+  const [search, setSearch] = useState("")
+  const utils = trpc.useUtils()
 
   const { data: users, isLoading } = trpc.users.adminList.useQuery({
     search: search || undefined,
     limit: 50,
-  });
+  })
 
   const banMutation = trpc.users.adminBan.useMutation({
     onSuccess: () => utils.users.adminList.invalidate(),
-  });
+  })
 
   const unbanMutation = trpc.users.adminUnban.useMutation({
     onSuccess: () => utils.users.adminList.invalidate(),
-  });
+  })
 
   return (
     <div className="space-y-6">
@@ -44,34 +52,34 @@ export default function AdminUsersPage() {
         </div>
       ) : (
         <div className="rounded-xl border border-[#2a2a2a] overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-[#141414] border-b border-[#2a2a2a]">
-              <tr>
-                <th className="text-left px-4 py-3 text-[#a0a0a0] font-medium">User</th>
-                <th className="text-left px-4 py-3 text-[#a0a0a0] font-medium">Plan</th>
-                <th className="text-left px-4 py-3 text-[#a0a0a0] font-medium">Credits</th>
-                <th className="text-left px-4 py-3 text-[#a0a0a0] font-medium">Generations</th>
-                <th className="text-left px-4 py-3 text-[#a0a0a0] font-medium">Status</th>
-                <th className="text-right px-4 py-3 text-[#a0a0a0] font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#2a2a2a]">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>User</TableHead>
+                <TableHead>Plan</TableHead>
+                <TableHead>Credits</TableHead>
+                <TableHead>Generations</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {users?.map((user) => (
-                <tr key={user.id} className="hover:bg-[#141414]/50 transition-colors">
-                  <td className="px-4 py-3">
+                <TableRow key={user.id}>
+                  <TableCell>
                     <div>
                       <p className="text-[#f0f0f0] font-medium">{user.name ?? "—"}</p>
                       <p className="text-[#606060] text-xs">{user.email ?? user.phone}</p>
                     </div>
-                  </td>
-                  <td className="px-4 py-3">
+                  </TableCell>
+                  <TableCell>
                     <Badge variant="secondary">{user.plan}</Badge>
-                  </td>
-                  <td className="px-4 py-3 text-[#a0a0a0]">{user.credits}</td>
-                  <td className="px-4 py-3 text-[#a0a0a0]">
+                  </TableCell>
+                  <TableCell className="text-[#a0a0a0]">{user.credits}</TableCell>
+                  <TableCell className="text-[#a0a0a0]">
                     {user._count.generations}
-                  </td>
-                  <td className="px-4 py-3">
+                  </TableCell>
+                  <TableCell>
                     {user.banned ? (
                       <Badge variant="destructive">Banned</Badge>
                     ) : (
@@ -80,8 +88,8 @@ export default function AdminUsersPage() {
                     {user.role === "ADMIN" && (
                       <Badge className="ml-1">Admin</Badge>
                     )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
+                  </TableCell>
+                  <TableCell className="text-right">
                     {user.banned ? (
                       <Button
                         variant="ghost"
@@ -98,21 +106,21 @@ export default function AdminUsersPage() {
                         size="sm"
                         className="text-red-400 hover:text-red-300"
                         onClick={() => {
-                          const reason = prompt("Ban reason:");
-                          if (reason) banMutation.mutate({ userId: user.id, reason });
+                          const reason = prompt("Ban reason:")
+                          if (reason) banMutation.mutate({ userId: user.id, reason })
                         }}
                       >
                         <Ban className="h-4 w-4 mr-1" />
                         Ban
                       </Button>
                     )}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
     </div>
-  );
+  )
 }

@@ -14,6 +14,10 @@ const nextConfig = {
         protocol: "https",
         hostname: "oaidalleapiprodscus.blob.core.windows.net",
       },
+      {
+        protocol: "https",
+        hostname: "picsum.photos",
+      },
     ],
   },
   async headers() {
@@ -48,7 +52,7 @@ const nextConfig = {
               "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
-              "img-src 'self' data: blob: https://*.r2.cloudflarestorage.com https://*.cloudflare.com https://oaidalleapiprodscus.blob.core.windows.net",
+              "img-src 'self' data: blob: https://*.r2.cloudflarestorage.com https://*.cloudflare.com https://oaidalleapiprodscus.blob.core.windows.net https://picsum.photos",
               "media-src 'self' blob: https://*.r2.cloudflarestorage.com",
               "connect-src 'self' https://*.sentry.io https://*.posthog.com",
               "frame-ancestors 'none'",

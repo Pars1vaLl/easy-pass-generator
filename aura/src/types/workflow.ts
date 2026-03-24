@@ -21,7 +21,12 @@ export interface ModelParameters {
   fps?: number;
   motionStrength?: number;
   style?: string;
-  quality?: "draft" | "standard" | "hd";
+  quality?: "draft" | "standard" | "hd" | "auto" | "low" | "medium" | "high";
+  // GPT Image API specific parameters
+  size?: "1024x1024" | "1024x1536" | "1536x1024" | "auto";
+  moderation?: "auto" | "low";
+  background?: "transparent" | "opaque" | "auto";
+  n?: number;  // Number of images (1-10 for gpt-image-1)
   [key: string]: unknown;
 }
 

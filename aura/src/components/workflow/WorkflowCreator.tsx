@@ -6,10 +6,18 @@ import { useForm, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { motion, AnimatePresence } from "framer-motion";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Card, CardContent } from "@/components/ui/card"
 import { trpc } from "@/lib/trpc/client";
 import { useToast } from "@/components/ui/toast";
 import { compilePromptPreview, extractTemplateVariables } from "@/lib/compilePrompt";
@@ -35,12 +43,15 @@ export function WorkflowCreator({
   workflowId,
   workflowName,
   workflowSlug,
-  previewUrls,
+  previewUrls: previewUrlsProp,
   creditCost,
   userInputSchema,
   promptTemplatePreview,
-  samplePrompts = [],
+  samplePrompts: samplePromptsProp,
 }: WorkflowCreatorProps) {
+  // Ensure arrays are always valid
+  const previewUrls = Array.isArray(previewUrlsProp) ? previewUrlsProp : [];
+  const samplePrompts = Array.isArray(samplePromptsProp) ? samplePromptsProp : [];
   const router = useRouter();
   const toast = useToast();
   const [showHistory, setShowHistory] = useState(false);
