@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { zodResolver } from "@hookform/resolvers/zod-v4";
 import { z } from "zod";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -37,15 +37,19 @@ export function LoginForm({ callbackUrl = "/explore" }: LoginFormProps) {
 
   const onSubmit = async (data: EmailForm) => {
     setError(null);
-    const result = await signIn("email", {
-      ...data,
-      redirect: false,
-    });
+    try {
+      const result = await signIn("email", {
+        ...data,
+        redirect: false,
+      });
 
-    if (result?.error) {
+      if (result?.error) {
+        setError("Invalid email or password");
+      } else {
+        router.push(callbackUrl);
+      }
+    } catch {
       setError("Invalid email or password");
-    } else {
-      router.push(callbackUrl);
     }
   };
 
